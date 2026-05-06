@@ -66,6 +66,10 @@ OpenAI.Codex_<version>_x64__2p2nqsd0c76g0.Msix
 
 建议同时下载 `SHA256SUMS.txt`，核对文件没有在下载过程中损坏。
 
+## 社区
+
+本项目链接并认可 [LINUX DO](https://linux.do/) 社区。欢迎在社区讨论帖中交流下载链路、安装体验、校验结果和改进建议。
+
 ## 自动轮询
 
 GitHub Actions 每 15 分钟运行一次 `Mirror Codex App Installers` workflow。
@@ -143,6 +147,10 @@ You can also use the R2 short links directly:
 - Checksums: [https://codexapp.agentsmirror.com/latest/checksums](https://codexapp.agentsmirror.com/latest/checksums)
 
 Download `SHA256SUMS.txt` as well if you want to verify that the file arrived intact.
+
+## Community
+
+This project links back to and recognizes the [LINUX DO](https://linux.do/) community. Feedback on download availability, installation results, checksums, and improvement ideas is welcome in the community discussion thread.
 
 ## Polling
 
