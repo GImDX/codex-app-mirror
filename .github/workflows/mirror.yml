@@ -18,6 +18,10 @@ on:
 permissions:
   contents: write
 
+env:
+  R2_BUCKET_NAME: codex-app-mirror
+  R2_PUBLIC_BASE_URL: https://pub-e0f3eb64cbbf47a094860887f49a4431.r2.dev
+
 concurrency:
   group: codex-app-mirror
   cancel-in-progress: false
@@ -95,6 +99,8 @@ jobs:
       - macos
       - windows
     steps:
+      - uses: actions/checkout@v6
+
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
@@ -133,6 +139,10 @@ jobs:
             echo "- macOS arm64: https://persistent.oaistatic.com/codex-app-prod/Codex.dmg"
             echo "- macOS x64: https://persistent.oaistatic.com/codex-app-prod/Codex-latest-x64.dmg"
             echo
+            echo "R2 mirror:"
+            echo "- Versioned objects: ${R2_PUBLIC_BASE_URL}/${tag}/<asset-name>"
+            echo "- Latest objects: ${R2_PUBLIC_BASE_URL}/latest/<asset-name>"
+            echo
             echo "Checksums are attached in SHA256SUMS.txt. The probe manifest is attached in release-manifest.json."
           } > release-notes.md
 
@@ -150,6 +160,33 @@ jobs:
             artifacts/codex-windows/* \
             release-manifest.json \
             SHA256SUMS.txt
+
+      - name: Ensure AWS CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v aws >/dev/null 2>&1; then
+            python3 -m pip install --user awscli
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Sync GitHub Release assets to Cloudflare R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_S3_ENDPOINT: https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(
+            artifacts/codex-macos/*
+            artifacts/codex-windows/*
+            release-manifest.json
+            SHA256SUMS.txt
+          )
+          bash scripts/sync-r2.sh "$R2_BUCKET_NAME" "${{ steps.meta.outputs.tag }}" "${files[@]}"
+          bash scripts/sync-r2.sh "$R2_BUCKET_NAME" latest "${files[@]}"
 
   no_changes:
     name: No new version
