@@ -18,13 +18,6 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/tag-openai--codex-0969da" alt="openai-codex tag">
-  <img src="https://img.shields.io/badge/tag-installer--mirror-0969da" alt="installer-mirror tag">
-  <img src="https://img.shields.io/badge/tag-msix-0969da" alt="msix tag">
-  <img src="https://img.shields.io/badge/tag-github--actions-0969da" alt="github-actions tag">
-</p>
-
-<p align="center">
   <a href="#readme-cn">中文</a> · <a href="#readme-en">English</a>
 </p>
 
