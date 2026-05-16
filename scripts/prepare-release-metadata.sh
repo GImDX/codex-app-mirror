@@ -143,6 +143,8 @@ mac_x64_etag="$(jq -r '.sources.macos.x64.etag // empty' release-manifest.json)"
   echo "- Checksums: ${r2_public_base_url}/latest/checksums"
   echo "- Manifest: ${r2_public_base_url}/latest/manifest"
   echo
+  echo "R2 links always point to the newest mirrored version. Use the attached GitHub Release assets when you need this exact release."
+  echo
   echo "Source fingerprints:"
   echo "- Windows size: ${windows_content_length} bytes, ETag: ${windows_etag}"
   echo "- macOS Apple Silicon size: ${mac_arm_content_length} bytes, ETag: ${mac_arm_etag}"
