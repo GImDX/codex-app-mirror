@@ -62,5 +62,7 @@ curl -fL --retry 3 --retry-delay 2 \
   "$x64_url"
 validate_size "$out_dir/Codex-mac-x64.dmg" "$x64_expected_size"
 
-shasum -a 256 "$out_dir/Codex-mac-arm64.dmg" "$out_dir/Codex-mac-x64.dmg" \
-  > "$out_dir/SHA256SUMS-macos.txt"
+(
+  cd "$out_dir"
+  shasum -a 256 Codex-mac-arm64.dmg Codex-mac-x64.dmg > SHA256SUMS-macos.txt
+)

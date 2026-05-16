@@ -105,10 +105,21 @@ jq \
   ' "$probe_manifest" > "$tmp_manifest"
 mv "$tmp_manifest" release-manifest.json
 
-find "$artifacts_dir" -type f ! -name macos-metadata.json -print0 |
-  sort -z |
-  xargs -0 sha256sum > SHA256SUMS.txt
-sha256sum release-manifest.json >> SHA256SUMS.txt
+write_checksum() {
+  local file="$1"
+  local name="${2:-$(basename "$file")}"
+  local hash
+
+  hash="$(sha256sum "$file" | awk '{print $1}')"
+  printf '%s  %s\n' "$hash" "$name"
+}
+
+{
+  while IFS= read -r -d '' file; do
+    write_checksum "$file"
+  done < <(find "$artifacts_dir" -type f ! -name macos-metadata.json -print0 | sort -z)
+  write_checksum release-manifest.json release-manifest.json
+} > SHA256SUMS.txt
 
 windows_content_length="$(jq -r '.sources.windows.contentLength' release-manifest.json)"
 windows_etag="$(jq -r '.sources.windows.etag // empty' release-manifest.json)"
