@@ -32,9 +32,24 @@ jobs:
         shell: bash
         run: bash -n scripts/*.sh
 
+      - name: Validate PowerShell scripts
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile("scripts/download-windows.ps1", [ref] $tokens, [ref] $errors)
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_ }
+            exit 1
+          }
+
       - name: Validate GitHub Actions
         shell: bash
         run: actionlint
+
+      - name: Test release metadata fixture
+        shell: bash
+        run: scripts/test-prepare-release-metadata.sh
 
       - name: Build Microsoft Store resolver
         run: dotnet build scripts/store-link/StoreLink.csproj --configuration Release
