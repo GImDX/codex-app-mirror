@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Wangnov/codex-app-mirror/releases/latest"><img src="https://img.shields.io/github/v/release/Wangnov/codex-app-mirror?logo=github" alt="Latest release"></a>
+  <a href="https://github.com/Wangnov/codex-app-mirror/releases/latest"><img src="https://img.shields.io/github/release-date/Wangnov/codex-app-mirror?label=updated&logo=github" alt="Latest update time"></a>
   <a href="https://github.com/Wangnov/codex-app-mirror/actions/workflows/mirror.yml"><img src="https://img.shields.io/github/actions/workflow/status/Wangnov/codex-app-mirror/mirror.yml?branch=main&label=mirror&logo=githubactions" alt="Mirror workflow"></a>
   <a href="https://github.com/Wangnov/codex-app-mirror/actions/workflows/mirror.yml"><img src="https://img.shields.io/badge/polling-every%2015%20minutes-2ea44f" alt="15 minute polling"></a>
   <a href="https://apps.microsoft.com/detail/9plm9xgg6vks"><img src="https://img.shields.io/badge/Microsoft%20Store-9PLM9XGG6VKS-0078d4?logo=microsoftstore" alt="Microsoft Store ProductId 9PLM9XGG6VKS"></a>

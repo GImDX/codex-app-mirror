@@ -54,9 +54,33 @@ mac_x64_version="$(jq -r '.macos.x64.bundleShortVersion' "$macos_metadata")"
 mac_x64_build="$(jq -r '.macos.x64.bundleVersion' "$macos_metadata")"
 mac_common_version="$(jq -r '.commonShortVersion // empty' "$macos_metadata")"
 mac_common_build="$(jq -r '.commonBundleVersion // empty' "$macos_metadata")"
+mac_arm_appcast_version="$(jq -r '.sources.macos.arm64.appcast.shortVersionString // empty' "$probe_manifest")"
+mac_arm_appcast_build="$(jq -r '.sources.macos.arm64.appcast.version // empty' "$probe_manifest")"
+mac_x64_appcast_version="$(jq -r '.sources.macos.x64.appcast.shortVersionString // empty' "$probe_manifest")"
+mac_x64_appcast_build="$(jq -r '.sources.macos.x64.appcast.version // empty' "$probe_manifest")"
 
 if [[ -z "$windows_version" || -z "$mac_arm_version" || -z "$mac_arm_build" || -z "$mac_x64_version" || -z "$mac_x64_build" ]]; then
   echo "Missing version metadata." >&2
+  exit 1
+fi
+
+if [[ -n "$mac_arm_appcast_version" && "$mac_arm_appcast_version" != "$mac_arm_version" ]]; then
+  echo "macOS arm64 DMG version does not match appcast: appcast=$mac_arm_appcast_version dmg=$mac_arm_version" >&2
+  exit 1
+fi
+
+if [[ -n "$mac_arm_appcast_build" && "$mac_arm_appcast_build" != "$mac_arm_build" ]]; then
+  echo "macOS arm64 DMG build does not match appcast: appcast=$mac_arm_appcast_build dmg=$mac_arm_build" >&2
+  exit 1
+fi
+
+if [[ -n "$mac_x64_appcast_version" && "$mac_x64_appcast_version" != "$mac_x64_version" ]]; then
+  echo "macOS Intel DMG version does not match appcast: appcast=$mac_x64_appcast_version dmg=$mac_x64_version" >&2
+  exit 1
+fi
+
+if [[ -n "$mac_x64_appcast_build" && "$mac_x64_appcast_build" != "$mac_x64_build" ]]; then
+  echo "macOS Intel DMG build does not match appcast: appcast=$mac_x64_appcast_build dmg=$mac_x64_build" >&2
   exit 1
 fi
 
@@ -129,28 +153,83 @@ mac_x64_content_length="$(jq -r '.sources.macos.x64.contentLength' release-manif
 mac_x64_etag="$(jq -r '.sources.macos.x64.etag // empty' release-manifest.json)"
 
 {
-  echo "Official Codex desktop app installer mirror."
+  echo "# Codex App 安装包镜像更新"
   echo
-  echo "Detected versions:"
-  echo "- Windows x64 MSIX: ${windows_version} (${windows_package}.Msix)"
-  echo "- macOS Apple Silicon: ${mac_arm_version} (build ${mac_arm_build})"
-  echo "- macOS Intel: ${mac_x64_version} (build ${mac_x64_build})"
+  echo "本次 Release 同步了官方 Codex 桌面端安装包，方便在 GitHub Releases 中下载当前版本对应的安装包。"
   echo
-  echo "R2 latest downloads:"
+  echo "## 下载"
+  echo
+  echo "- Windows x64: \`${windows_package}.Msix\`"
+  echo "- macOS Apple Silicon: \`Codex-mac-arm64.dmg\`"
+  echo "- macOS Intel: \`Codex-mac-x64.dmg\`"
+  echo
+  echo "## 版本信息"
+  echo
+  echo "- Windows x64 MSIX: \`${windows_version}\`"
+  echo "- macOS Apple Silicon: \`${mac_arm_version}\` build \`${mac_arm_build}\`"
+  echo "- macOS Intel: \`${mac_x64_version}\` build \`${mac_x64_build}\`"
+  echo
+  echo "Windows 和 macOS 来自不同官方上游，版本号可能不完全一致；这是正常情况。"
+  echo
+  echo "<!-- latest-links-cn:start -->"
+  echo "## 最新版快速下载"
+  echo
+  echo "- Windows: ${r2_public_base_url}/latest/win"
   echo "- Apple Silicon Mac: ${r2_public_base_url}/latest/mac-arm64"
   echo "- Intel Mac: ${r2_public_base_url}/latest/mac-intel"
-  echo "- Windows x64: ${r2_public_base_url}/latest/win"
+  echo "- 校验和: ${r2_public_base_url}/latest/checksums"
+  echo "- Manifest: ${r2_public_base_url}/latest/manifest"
+  echo
+  echo "这些链接始终指向当前最新镜像版本。如果你正在查看历史 Release，请优先使用该 Release 页面中的附件。"
+  echo "<!-- latest-links-cn:end -->"
+  echo
+  echo "## 校验"
+  echo
+  echo "建议下载后使用随附的 \`SHA256SUMS.txt\` 校验文件完整性。"
+  echo
+  echo "## 来源说明"
+  echo
+  echo "本项目只镜像官方安装包，不修改、不重打包、不破解安装器。更完整的上游指纹记录在随附的 \`release-manifest.json\` 中。"
+  echo
+  echo "---"
+  echo
+  echo "# Codex App installer mirror update"
+  echo
+  echo "This release mirrors the latest official Codex desktop app installers and makes the matching packages available as assets on this GitHub Release."
+  echo
+  echo "## Downloads"
+  echo
+  echo "- Windows x64: \`${windows_package}.Msix\`"
+  echo "- macOS Apple Silicon: \`Codex-mac-arm64.dmg\`"
+  echo "- macOS Intel: \`Codex-mac-x64.dmg\`"
+  echo
+  echo "## Version details"
+  echo
+  echo "- Windows x64 MSIX: \`${windows_version}\`"
+  echo "- macOS Apple Silicon: \`${mac_arm_version}\` build \`${mac_arm_build}\`"
+  echo "- macOS Intel: \`${mac_x64_version}\` build \`${mac_x64_build}\`"
+  echo
+  echo "Windows and macOS are resolved from different official upstream packages, so their version numbers may not always match exactly."
+  echo
+  echo "<!-- latest-links-en:start -->"
+  echo "## Latest quick downloads"
+  echo
+  echo "- Windows: ${r2_public_base_url}/latest/win"
+  echo "- Apple Silicon Mac: ${r2_public_base_url}/latest/mac-arm64"
+  echo "- Intel Mac: ${r2_public_base_url}/latest/mac-intel"
   echo "- Checksums: ${r2_public_base_url}/latest/checksums"
   echo "- Manifest: ${r2_public_base_url}/latest/manifest"
   echo
-  echo "R2 links always point to the newest mirrored version. Use the attached GitHub Release assets when you need this exact release."
+  echo "These links always point to the newest mirrored version. If you are viewing a historical Release, prefer the assets attached to that Release page."
+  echo "<!-- latest-links-en:end -->"
   echo
-  echo "Source fingerprints:"
-  echo "- Windows size: ${windows_content_length} bytes, ETag: ${windows_etag}"
-  echo "- macOS Apple Silicon size: ${mac_arm_content_length} bytes, ETag: ${mac_arm_etag}"
-  echo "- macOS Intel size: ${mac_x64_content_length} bytes, ETag: ${mac_x64_etag}"
+  echo "## Verification"
   echo
-  echo "Checksums are attached in SHA256SUMS.txt. The enriched probe manifest is attached in release-manifest.json."
+  echo "We recommend verifying downloaded files with the attached \`SHA256SUMS.txt\`."
+  echo
+  echo "## Source notes"
+  echo
+  echo "This project only mirrors official installer packages. It does not modify, repackage, or bypass installer authorization. The full upstream fingerprints are included in the attached \`release-manifest.json\`."
 } > release-notes.md
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then

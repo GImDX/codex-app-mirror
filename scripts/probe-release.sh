@@ -3,8 +3,9 @@ set -euo pipefail
 
 product_id="9PLM9XGG6VKS"
 architecture="x64"
-arm_url="https://persistent.oaistatic.com/codex-app-prod/Codex.dmg"
-x64_url="https://persistent.oaistatic.com/codex-app-prod/Codex-latest-x64.dmg"
+arm_appcast_url="https://persistent.oaistatic.com/codex-app-prod/appcast.xml"
+x64_appcast_url="https://persistent.oaistatic.com/codex-app-prod/appcast-x64.xml"
+windows_update_manifest_url="https://persistent.oaistatic.com/codex-app-prod/windows-store-update.json"
 force_release="${FORCE_RELEASE:-false}"
 release_tag_input="${RELEASE_TAG:-}"
 manifest_path="${MANIFEST_PATH:-release-manifest.json}"
@@ -44,6 +45,38 @@ json_number() {
   fi
 }
 
+appcast_latest() {
+  local url="$1"
+  curl -fsSL --retry 3 --retry-delay 2 "$url" |
+    python3 -c '
+import json
+import sys
+import xml.etree.ElementTree as ET
+
+ns = {"sparkle": "http://www.andymatuschak.org/xml-namespaces/sparkle"}
+root = ET.parse(sys.stdin).getroot()
+item = root.find("./channel/item")
+if item is None:
+    raise SystemExit("appcast has no item")
+enclosure = item.find("enclosure")
+if enclosure is None:
+    raise SystemExit("appcast item has no enclosure")
+sparkle_sig_key = "{http://www.andymatuschak.org/xml-namespaces/sparkle}edSignature"
+payload = {
+    "title": item.findtext("title") or "",
+    "pubDate": item.findtext("pubDate") or "",
+    "version": item.findtext("sparkle:version", namespaces=ns) or "",
+    "shortVersionString": item.findtext("sparkle:shortVersionString", namespaces=ns) or "",
+    "minimumSystemVersion": item.findtext("sparkle:minimumSystemVersion", namespaces=ns) or "",
+    "hardwareRequirements": item.findtext("sparkle:hardwareRequirements", namespaces=ns) or "",
+    "enclosureUrl": enclosure.attrib.get("url", ""),
+    "enclosureLength": int(enclosure.attrib.get("length", "0") or "0"),
+    "enclosureSignature": enclosure.attrib.get(sparkle_sig_key, ""),
+}
+print(json.dumps(payload, sort_keys=True))
+'
+}
+
 asset_size() {
   local assets_json="$1"
   local asset_name="$2"
@@ -54,15 +87,20 @@ manifest_key() {
   jq -S -c '{
     windows: {
       packageMoniker: .sources.windows.packageMoniker,
-      contentLength: .sources.windows.contentLength
+      contentLength: .sources.windows.contentLength,
+      updateManifestBuildVersion: .sources.windows.updateManifest.buildVersion
     },
     macos: {
       arm64: {
+        appcastVersion: .sources.macos.arm64.appcast.shortVersionString,
+        appcastBuild: .sources.macos.arm64.appcast.version,
         contentLength: .sources.macos.arm64.contentLength,
         etag: .sources.macos.arm64.etag,
         lastModified: .sources.macos.arm64.lastModified
       },
       x64: {
+        appcastVersion: .sources.macos.x64.appcast.shortVersionString,
+        appcastBuild: .sources.macos.x64.appcast.version,
         contentLength: .sources.macos.x64.contentLength,
         etag: .sources.macos.x64.etag,
         lastModified: .sources.macos.x64.lastModified
@@ -75,6 +113,7 @@ require curl
 require dotnet
 require gh
 require jq
+require python3
 
 link_line="$(dotnet run --project scripts/store-link -- "$product_id" "$architecture" |
   awk '/^OpenAI\.Codex_/ { print; exit }')"
@@ -87,14 +126,31 @@ fi
 windows_package="${link_line%%$'\t'*}"
 windows_url="${link_line#*$'\t'}"
 windows_version="$(sed -E 's/^OpenAI\.Codex_([^_]+)_.*/\1/' <<<"$windows_package")"
+windows_update_json="$(curl -fsSL --retry 3 --retry-delay 2 "$windows_update_manifest_url")"
+windows_update_version="$(jq -r '.buildVersion // empty' <<<"$windows_update_json")"
+windows_update_product_id="$(jq -r '.storeProductId // empty' <<<"$windows_update_json")"
+windows_update_package_identity="$(jq -r '.packageIdentity // empty' <<<"$windows_update_json")"
 windows_content_length="$(header_value "$windows_url" "content-length")"
 windows_last_modified="$(header_value "$windows_url" "last-modified")"
 windows_etag="$(header_value "$windows_url" "etag")"
 
+arm_appcast_json="$(appcast_latest "$arm_appcast_url")"
+x64_appcast_json="$(appcast_latest "$x64_appcast_url")"
+arm_appcast_version="$(jq -r '.shortVersionString' <<<"$arm_appcast_json")"
+arm_appcast_build="$(jq -r '.version' <<<"$arm_appcast_json")"
+x64_appcast_version="$(jq -r '.shortVersionString' <<<"$x64_appcast_json")"
+x64_appcast_build="$(jq -r '.version' <<<"$x64_appcast_json")"
+
+if [[ -z "$arm_appcast_version" || -z "$arm_appcast_build" || -z "$x64_appcast_version" || -z "$x64_appcast_build" ]]; then
+  echo "Missing macOS appcast version metadata." >&2
+  exit 1
+fi
+
+arm_url="https://persistent.oaistatic.com/codex-app-prod/Codex-${arm_appcast_version}-arm64.dmg"
+x64_url="https://persistent.oaistatic.com/codex-app-prod/Codex-${x64_appcast_version}-x64.dmg"
 arm_content_length="$(header_value "$arm_url" "content-length")"
 arm_last_modified="$(header_value "$arm_url" "last-modified")"
 arm_etag="$(header_value "$arm_url" "etag")"
-
 x64_content_length="$(header_value "$x64_url" "content-length")"
 x64_last_modified="$(header_value "$x64_url" "last-modified")"
 x64_etag="$(header_value "$x64_url" "etag")"
@@ -106,14 +162,22 @@ jq -n \
   --arg windowsVersion "$windows_version" \
   --arg windowsPackage "$windows_package" \
   --arg windowsUrlHost "$(printf '%s' "$windows_url" | sed -E 's#^(https?://[^/]+).*#\1#')" \
+  --arg windowsUpdateManifestUrl "$windows_update_manifest_url" \
+  --arg windowsUpdateVersion "$windows_update_version" \
+  --arg windowsUpdateProductId "$windows_update_product_id" \
+  --arg windowsUpdatePackageIdentity "$windows_update_package_identity" \
   --argjson windowsContentLength "$(json_number "$windows_content_length")" \
   --arg windowsLastModified "$windows_last_modified" \
   --arg windowsEtag "$windows_etag" \
   --arg armUrl "$arm_url" \
+  --arg armAppcastUrl "$arm_appcast_url" \
+  --argjson armAppcast "$arm_appcast_json" \
   --argjson armContentLength "$(json_number "$arm_content_length")" \
   --arg armLastModified "$arm_last_modified" \
   --arg armEtag "$arm_etag" \
   --arg x64Url "$x64_url" \
+  --arg x64AppcastUrl "$x64_appcast_url" \
+  --argjson x64Appcast "$x64_appcast_json" \
   --argjson x64ContentLength "$(json_number "$x64_content_length")" \
   --arg x64LastModified "$x64_last_modified" \
   --arg x64Etag "$x64_etag" \
@@ -127,6 +191,12 @@ jq -n \
         version: $windowsVersion,
         packageMoniker: $windowsPackage,
         urlHost: $windowsUrlHost,
+        updateManifestUrl: $windowsUpdateManifestUrl,
+        updateManifest: {
+          buildVersion: $windowsUpdateVersion,
+          storeProductId: $windowsUpdateProductId,
+          packageIdentity: $windowsUpdatePackageIdentity
+        },
         contentLength: $windowsContentLength,
         lastModified: $windowsLastModified,
         etag: $windowsEtag
@@ -134,12 +204,16 @@ jq -n \
       macos: {
         arm64: {
           url: $armUrl,
+          appcastUrl: $armAppcastUrl,
+          appcast: $armAppcast,
           contentLength: $armContentLength,
           lastModified: $armLastModified,
           etag: $armEtag
         },
         x64: {
           url: $x64Url,
+          appcastUrl: $x64AppcastUrl,
+          appcast: $x64Appcast,
           contentLength: $x64ContentLength,
           lastModified: $x64LastModified,
           etag: $x64Etag
@@ -189,7 +263,7 @@ else
   release_tag=""
 fi
 
-version_summary="windows=$windows_version ($windows_package); mac-arm64=$arm_etag/$arm_content_length; mac-x64=$x64_etag/$x64_content_length"
+version_summary="windows=$windows_version ($windows_package; updateManifest=$windows_update_version); mac-arm64=$arm_appcast_version-b$arm_appcast_build/$arm_etag/$arm_content_length; mac-x64=$x64_appcast_version-b$x64_appcast_build/$x64_etag/$x64_content_length"
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
   {

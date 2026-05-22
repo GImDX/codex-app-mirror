@@ -155,6 +155,15 @@ jobs:
             release-manifest.json \
             SHA256SUMS.txt
 
+      - name: Remove latest links from previous release notes
+        if: needs.probe.outputs.latest_tag != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: bash scripts/remove-latest-links-from-release-notes.sh "${{ needs.probe.outputs.latest_tag }}"
+
       - name: Ensure AWS CLI
         shell: bash
         run: |

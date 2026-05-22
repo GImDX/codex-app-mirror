@@ -5,8 +5,8 @@ out_dir="${1:-dist}"
 manifest_path="${2:-}"
 mkdir -p "$out_dir"
 
-arm_url="https://persistent.oaistatic.com/codex-app-prod/Codex.dmg"
-x64_url="https://persistent.oaistatic.com/codex-app-prod/Codex-latest-x64.dmg"
+arm_url=""
+x64_url=""
 arm_expected_size=""
 x64_expected_size=""
 
@@ -50,6 +50,9 @@ if [[ -n "$manifest_path" ]]; then
   x64_url="$(jq -r '.sources.macos.x64.url' "$manifest_path")"
   arm_expected_size="$(jq -r '.sources.macos.arm64.contentLength' "$manifest_path")"
   x64_expected_size="$(jq -r '.sources.macos.x64.contentLength' "$manifest_path")"
+else
+  arm_url="https://persistent.oaistatic.com/codex-app-prod/Codex.dmg"
+  x64_url="https://persistent.oaistatic.com/codex-app-prod/Codex-latest-x64.dmg"
 fi
 
 curl -fL --retry 3 --retry-delay 2 \
