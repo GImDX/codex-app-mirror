@@ -45,6 +45,30 @@ json_number() {
   fi
 }
 
+version_gt() {
+  python3 - "$1" "$2" <<'PY'
+import sys
+
+
+def parse(version):
+    parts = []
+    for part in version.split("."):
+        try:
+            parts.append(int(part))
+        except ValueError:
+            parts.append(part)
+    return parts
+
+
+left = parse(sys.argv[1])
+right = parse(sys.argv[2])
+length = max(len(left), len(right))
+left.extend([0] * (length - len(left)))
+right.extend([0] * (length - len(right)))
+raise SystemExit(0 if left > right else 1)
+PY
+}
+
 appcast_latest() {
   local url="$1"
   curl -fsSL --retry 3 --retry-delay 2 "$url" |
@@ -268,7 +292,15 @@ if [[ "$force_release" == "true" ]]; then
   skip_reason="force_release=true"
 else
   latest_tag="$(gh release list --limit 1 --exclude-drafts --exclude-pre-releases --json tagName --jq '.[0].tagName // ""')"
-  if [[ -n "$latest_tag" ]]; then
+  update_notice="$(windows_update_wait_notice "$manifest_path")"
+  if [[ -n "$windows_update_version" && -n "$windows_version" ]] && version_gt "$windows_update_version" "$windows_version"; then
+    should_release="false"
+    if [[ -n "$latest_tag" ]]; then
+      skip_reason="$update_notice Latest release remains $latest_tag."
+    else
+      skip_reason="$update_notice"
+    fi
+  elif [[ -n "$latest_tag" ]]; then
     if gh release download "$latest_tag" -p release-manifest.json -D "$tmp_dir" --clobber >/dev/null 2>&1; then
       current_key="$(manifest_key "$manifest_path")"
       previous_key="$(manifest_key "$tmp_dir/release-manifest.json")"
