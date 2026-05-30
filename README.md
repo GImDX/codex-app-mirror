@@ -13,6 +13,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/Wangnov/codex-app-mirror/releases/latest"><img src="https://img.shields.io/endpoint?url=https://codexapp.agentsmirror.com/stats/downloads.json" alt="R2 cumulative installer downloads"></a>
   <a href="https://github.com/Wangnov/codex-app-mirror/releases/latest"><img src="https://img.shields.io/github/release-date/Wangnov/codex-app-mirror?label=updated&logo=github" alt="Latest update time"></a>
   <a href="https://github.com/Wangnov/codex-app-mirror/actions/workflows/mirror.yml"><img src="https://img.shields.io/github/actions/workflow/status/Wangnov/codex-app-mirror/mirror.yml?branch=main&label=mirror&logo=githubactions" alt="Mirror workflow"></a>
   <a href="https://github.com/Wangnov/codex-app-mirror/actions/workflows/mirror.yml"><img src="https://img.shields.io/badge/polling-every%2015%20minutes-2ea44f" alt="15 minute polling"></a>
