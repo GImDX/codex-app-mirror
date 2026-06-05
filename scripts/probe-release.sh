@@ -204,7 +204,30 @@ require gh
 require jq
 require python3
 
-link_line="$(dotnet run --project scripts/store-link -- "$product_id" "$architecture" |
+resolve_store_link() {
+  local attempt
+  local max_attempts="${STORE_LINK_MAX_ATTEMPTS:-3}"
+  local delay="${STORE_LINK_RETRY_DELAY_SECONDS:-10}"
+
+  for ((attempt = 1; attempt <= max_attempts; attempt++)); do
+    echo "Resolving Microsoft Store package link (attempt $attempt/$max_attempts)" >&2
+    if dotnet run --project scripts/store-link -- "$product_id" "$architecture"; then
+      return 0
+    fi
+
+    if ((attempt == max_attempts)); then
+      break
+    fi
+
+    echo "Microsoft Store resolver failed; retrying in ${delay}s." >&2
+    sleep "$delay"
+    delay=$((delay * 2))
+  done
+
+  return 1
+}
+
+link_line="$(resolve_store_link |
   awk '/^OpenAI\.Codex_/ { print; exit }')"
 
 if [[ -z "$link_line" ]]; then

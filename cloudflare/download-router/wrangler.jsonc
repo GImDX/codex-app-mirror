@@ -1,0 +1,17 @@
+{
+  "name": "codex-app-mirror-download-router",
+  "main": "src/index.js",
+  "compatibility_date": "2026-06-04",
+  "workers_dev": false,
+  "vars": {
+    "GLOBAL_MIRROR_BASE_URL": "https://codexapp-r2.agentsmirror.com",
+    "SECONDARY_COUNTRY_CODES": "CN",
+    "SECONDARY_S3_SIGNED_URL_TTL_SECONDS": "3600"
+  },
+  "routes": [
+    {
+      "pattern": "codexapp.agentsmirror.com/latest/*",
+      "zone_id": "a5bae9b722f3c5fe1a24aaebe7a8e663"
+    }
+  ]
+}

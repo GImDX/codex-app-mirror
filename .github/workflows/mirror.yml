@@ -229,6 +229,64 @@ jobs:
             -o /tmp/r2-public-manifest.json
           cmp release-manifest.json /tmp/r2-public-manifest.json
 
+      - name: Sync GitHub Release assets to secondary S3 mirror
+        env:
+          SECONDARY_S3_ENDPOINT: ${{ secrets.SECONDARY_S3_ENDPOINT }}
+          SECONDARY_S3_BUCKET: ${{ secrets.SECONDARY_S3_BUCKET }}
+          SECONDARY_S3_REGION: ${{ secrets.SECONDARY_S3_REGION }}
+          SECONDARY_S3_PREFIX: latest
+          SECONDARY_S3_ACCESS_KEY_ID: ${{ secrets.SECONDARY_S3_ACCESS_KEY_ID }}
+          SECONDARY_S3_SECRET_ACCESS_KEY: ${{ secrets.SECONDARY_S3_SECRET_ACCESS_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SECONDARY_S3_REGION="${SECONDARY_S3_REGION:-auto}"
+          if [[ -z "${SECONDARY_S3_ENDPOINT:-}" && -z "${SECONDARY_S3_BUCKET:-}" && -z "${SECONDARY_S3_ACCESS_KEY_ID:-}" && -z "${SECONDARY_S3_SECRET_ACCESS_KEY:-}" ]]; then
+            echo "Secondary S3 mirror is not configured; skipping."
+            exit 0
+          fi
+          if [[ -z "${SECONDARY_S3_ENDPOINT:-}" || -z "${SECONDARY_S3_BUCKET:-}" || -z "${SECONDARY_S3_ACCESS_KEY_ID:-}" || -z "${SECONDARY_S3_SECRET_ACCESS_KEY:-}" ]]; then
+            echo "Secondary S3 mirror is partially configured; set endpoint, bucket, access key, and secret key." >&2
+            exit 1
+          fi
+
+          mac_arm64="artifacts/codex-macos/Codex-mac-arm64.dmg"
+          mac_intel="artifacts/codex-macos/Codex-mac-x64.dmg"
+          win_msix="$(find artifacts/codex-windows -maxdepth 1 -type f \( -name '*.Msix' -o -name '*.msix' \) | sort | head -n 1)"
+
+          test -f "$mac_arm64"
+          test -f "$mac_intel"
+          test -f "$win_msix"
+
+          bash scripts/sync-secondary-s3.sh \
+            "$mac_arm64" \
+            "$mac_intel" \
+            "$win_msix" \
+            SHA256SUMS.txt \
+            release-manifest.json
+
+          tmp_config="$(mktemp)"
+          cleanup() {
+            rm -f "$tmp_config"
+          }
+          trap cleanup EXIT
+          cat > "$tmp_config" <<EOF
+          [default]
+          region = $SECONDARY_S3_REGION
+          s3 =
+              addressing_style = path
+          EOF
+
+          AWS_ACCESS_KEY_ID="$SECONDARY_S3_ACCESS_KEY_ID" \
+          AWS_SECRET_ACCESS_KEY="$SECONDARY_S3_SECRET_ACCESS_KEY" \
+          AWS_DEFAULT_REGION="$SECONDARY_S3_REGION" \
+          AWS_CONFIG_FILE="$tmp_config" \
+          aws s3 cp "s3://$SECONDARY_S3_BUCKET/latest/manifest" /tmp/secondary-s3-manifest.json \
+            --endpoint-url "$SECONDARY_S3_ENDPOINT" \
+            --region "$SECONDARY_S3_REGION" \
+            --no-progress
+          cmp release-manifest.json /tmp/secondary-s3-manifest.json
+
   no_changes:
     name: No new version
     runs-on: ubuntu-latest
