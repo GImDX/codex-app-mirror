@@ -181,6 +181,89 @@ asset_size() {
   jq -r --arg name "$asset_name" '.[] | select(.name == $name) | .size' <<<"$assets_json" | head -n 1
 }
 
+github_api_json_allow_404() {
+  local err_file
+  local output
+  local status
+
+  err_file="$(mktemp)"
+  if output="$(gh api "$@" 2>"$err_file")"; then
+    rm -f "$err_file"
+    printf '%s\n' "$output"
+    return 0
+  fi
+
+  status=$?
+  if grep -q 'HTTP 404' "$err_file"; then
+    rm -f "$err_file"
+    return 1
+  fi
+
+  cat "$err_file" >&2
+  rm -f "$err_file"
+  return "$status"
+}
+
+latest_release_tag() {
+  local release_json
+  local status
+
+  if release_json="$(github_api_json_allow_404 'repos/{owner}/{repo}/releases/latest')"; then
+    jq -r '.tag_name // ""' <<<"$release_json"
+    return 0
+  fi
+
+  status=$?
+  if [[ "$status" -eq 1 ]]; then
+    printf ''
+    return 0
+  fi
+
+  return "$status"
+}
+
+github_release_json() {
+  local tag="$1"
+  gh api "repos/{owner}/{repo}/releases/tags/$tag"
+}
+
+release_assets_json() {
+  local tag="$1"
+  github_release_json "$tag" | jq -c '.assets // []'
+}
+
+download_release_asset() {
+  local tag="$1"
+  local asset_name="$2"
+  local dest_dir="$3"
+  local release_json
+  local asset_api_url
+
+  release_json="$(github_release_json "$tag")"
+  asset_api_url="$(jq -r --arg name "$asset_name" '.assets[]? | select(.name == $name) | .url' <<<"$release_json" | head -n 1)"
+  if [[ -z "$asset_api_url" || "$asset_api_url" == "null" ]]; then
+    return 1
+  fi
+
+  mkdir -p "$dest_dir"
+  gh api -H "Accept: application/octet-stream" "$asset_api_url" > "$dest_dir/$asset_name"
+}
+
+release_exists() {
+  local status
+
+  if github_api_json_allow_404 "repos/{owner}/{repo}/releases/tags/$1" >/dev/null; then
+    return 0
+  fi
+
+  status=$?
+  if [[ "$status" -eq 1 ]]; then
+    return 1
+  fi
+
+  exit "$status"
+}
+
 sanitize_tag_part() {
   tr -cs 'A-Za-z0-9._-' '-' <<<"$1" | sed -E 's/^-+//; s/-+$//'
 }
@@ -391,7 +474,7 @@ trap 'rm -rf "$tmp_dir"' EXIT
 if [[ "$force_release" == "true" ]]; then
   skip_reason="force_release=true"
 else
-  latest_tag="$(gh release list --limit 1 --exclude-drafts --exclude-pre-releases --json tagName --jq '.[0].tagName // ""')"
+  latest_tag="$(latest_release_tag)"
   update_notice="$(windows_update_wait_notice "$manifest_path")"
   if [[ -n "$windows_update_version" && -n "$windows_version" ]] && version_gt "$windows_update_version" "$windows_version"; then
     should_release="false"
@@ -401,7 +484,7 @@ else
       skip_reason="$update_notice"
     fi
   elif [[ -n "$latest_tag" ]]; then
-    if gh release download "$latest_tag" -p release-manifest.json -D "$tmp_dir" --clobber >/dev/null 2>&1; then
+    if download_release_asset "$latest_tag" release-manifest.json "$tmp_dir" >/dev/null 2>&1; then
       current_key="$(manifest_key "$manifest_path")"
       previous_key="$(manifest_key "$tmp_dir/release-manifest.json")"
       if [[ "$current_key" == "$previous_key" ]]; then
@@ -414,7 +497,7 @@ else
         fi
       fi
     else
-      assets_json="$(gh release view "$latest_tag" --json assets --jq '.assets')"
+      assets_json="$(release_assets_json "$latest_tag")"
       windows_asset_size="$(asset_size "$assets_json" "$windows_package.Msix")"
       arm_asset_size="$(asset_size "$assets_json" "Codex-mac-arm64.dmg")"
       x64_asset_size="$(asset_size "$assets_json" "Codex-mac-x64.dmg")"
@@ -430,7 +513,7 @@ fi
 
 if [[ "$should_release" == "true" && "$force_release" != "true" && -z "$release_tag_input" ]]; then
   predicted_tag="$(predicted_release_tag "$windows_version" "$arm_appcast_version" "$arm_appcast_build" "$x64_appcast_version" "$x64_appcast_build")"
-  if gh release view "$predicted_tag" >/dev/null 2>&1; then
+  if release_exists "$predicted_tag"; then
     should_release="false"
     update_notice="$(windows_update_wait_notice "$manifest_path")"
     if [[ -n "$update_notice" ]]; then
