@@ -29,11 +29,19 @@ cat > "$tmp_dir/probe-manifest.json" <<'JSON'
     "macos": {
       "arm64": {
         "contentLength": 3,
-        "etag": "arm64-etag"
+        "etag": "arm64-etag",
+        "appcast": {
+          "shortVersionString": "1.2.3",
+          "version": "6"
+        }
       },
       "x64": {
         "contentLength": 3,
-        "etag": "x64-etag"
+        "etag": "x64-etag",
+        "appcast": {
+          "shortVersionString": "1.2.3",
+          "version": "6"
+        }
       }
     }
   }
@@ -72,11 +80,12 @@ JSON
     artifacts \
     https://example.com > output.txt
 
-  grep -F 'tag=codex-app-win-1.2.3.4-mac-1.2.3-b5' output.txt
+  grep -F 'tag=codex-app-win-1.2.3.4-mac-1.2.3-b6' output.txt
   grep -F 'title=Codex App Mirror 1.2' output.txt
   grep -F 'Codex-mac-arm64.dmg' SHA256SUMS.txt
   grep -F 'OpenAI.Codex_1.2.3.4_x64__2p2nqsd0c76g0.Msix' SHA256SUMS.txt
   grep -F '![Codex App Mirror](https://github.com/Wangnov/codex-app-mirror/releases/latest/download/status.png)' release-notes.md
+  grep -F 'macOS Apple Silicon Sparkle: `1.2.3` build `6`' release-notes.md
   grep -F 'These links always point to the newest mirrored version.' release-notes.md
 
   if grep -F 'artifacts/' SHA256SUMS.txt; then

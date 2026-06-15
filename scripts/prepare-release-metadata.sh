@@ -87,8 +87,7 @@ if [[ -n "$mac_arm_appcast_version" && "$mac_arm_appcast_version" != "$mac_arm_v
 fi
 
 if [[ -n "$mac_arm_appcast_build" && "$mac_arm_appcast_build" != "$mac_arm_build" ]]; then
-  echo "macOS arm64 DMG build does not match appcast: appcast=$mac_arm_appcast_build dmg=$mac_arm_build" >&2
-  exit 1
+  echo "macOS arm64 DMG build differs from appcast; keeping both: appcast=$mac_arm_appcast_build dmg=$mac_arm_build" >&2
 fi
 
 if [[ -n "$mac_x64_appcast_version" && "$mac_x64_appcast_version" != "$mac_x64_version" ]]; then
@@ -97,18 +96,21 @@ if [[ -n "$mac_x64_appcast_version" && "$mac_x64_appcast_version" != "$mac_x64_v
 fi
 
 if [[ -n "$mac_x64_appcast_build" && "$mac_x64_appcast_build" != "$mac_x64_build" ]]; then
-  echo "macOS Intel DMG build does not match appcast: appcast=$mac_x64_appcast_build dmg=$mac_x64_build" >&2
-  exit 1
+  echo "macOS Intel DMG build differs from appcast; keeping both: appcast=$mac_x64_appcast_build dmg=$mac_x64_build" >&2
 fi
 
 if [[ -n "$release_tag_override" ]]; then
   tag="$release_tag_override"
 else
   windows_tag="$(sanitize_tag_part "$windows_version")"
-  if [[ -n "$mac_common_version" && -n "$mac_common_build" ]]; then
-    mac_tag="mac-$(sanitize_tag_part "$mac_common_version")-b$(sanitize_tag_part "$mac_common_build")"
+  mac_arm_tag_version="${mac_arm_appcast_version:-$mac_arm_version}"
+  mac_arm_tag_build="${mac_arm_appcast_build:-$mac_arm_build}"
+  mac_x64_tag_version="${mac_x64_appcast_version:-$mac_x64_version}"
+  mac_x64_tag_build="${mac_x64_appcast_build:-$mac_x64_build}"
+  if [[ "$mac_arm_tag_version" == "$mac_x64_tag_version" && "$mac_arm_tag_build" == "$mac_x64_tag_build" ]]; then
+    mac_tag="mac-$(sanitize_tag_part "$mac_arm_tag_version")-b$(sanitize_tag_part "$mac_arm_tag_build")"
   else
-    mac_tag="mac-arm64-$(sanitize_tag_part "$mac_arm_version")-b$(sanitize_tag_part "$mac_arm_build")-x64-$(sanitize_tag_part "$mac_x64_version")-b$(sanitize_tag_part "$mac_x64_build")"
+    mac_tag="mac-arm64-$(sanitize_tag_part "$mac_arm_tag_version")-b$(sanitize_tag_part "$mac_arm_tag_build")-x64-$(sanitize_tag_part "$mac_x64_tag_version")-b$(sanitize_tag_part "$mac_x64_tag_build")"
   fi
   tag="codex-app-win-${windows_tag}-${mac_tag}"
 fi
@@ -191,8 +193,12 @@ mac_x64_etag="$(jq -r '.sources.macos.x64.etag // empty' release-manifest.json)"
   echo "- Windows x64 MSIX: \`${windows_version}\`"
   echo "- macOS Apple Silicon: \`${mac_arm_version}\` build \`${mac_arm_build}\`"
   echo "- macOS Intel: \`${mac_x64_version}\` build \`${mac_x64_build}\`"
+  if [[ -n "$mac_arm_appcast_version" || -n "$mac_x64_appcast_version" ]]; then
+    echo "- macOS Apple Silicon Sparkle: \`${mac_arm_appcast_version:-$mac_arm_version}\` build \`${mac_arm_appcast_build:-$mac_arm_build}\`"
+    echo "- macOS Intel Sparkle: \`${mac_x64_appcast_version:-$mac_x64_version}\` build \`${mac_x64_appcast_build:-$mac_x64_build}\`"
+  fi
   echo
-  echo "Windows 和 macOS 来自不同官方上游，版本号可能不完全一致；这是正常情况。"
+  echo "Windows、macOS DMG 和 macOS Sparkle 更新来自不同官方上游，版本号或 build 可能不完全一致；这是正常情况。"
   echo
   echo "<!-- latest-links-cn:start -->"
   echo "## 最新版快速下载"
@@ -235,8 +241,12 @@ mac_x64_etag="$(jq -r '.sources.macos.x64.etag // empty' release-manifest.json)"
   echo "- Windows x64 MSIX: \`${windows_version}\`"
   echo "- macOS Apple Silicon: \`${mac_arm_version}\` build \`${mac_arm_build}\`"
   echo "- macOS Intel: \`${mac_x64_version}\` build \`${mac_x64_build}\`"
+  if [[ -n "$mac_arm_appcast_version" || -n "$mac_x64_appcast_version" ]]; then
+    echo "- macOS Apple Silicon Sparkle: \`${mac_arm_appcast_version:-$mac_arm_version}\` build \`${mac_arm_appcast_build:-$mac_arm_build}\`"
+    echo "- macOS Intel Sparkle: \`${mac_x64_appcast_version:-$mac_x64_version}\` build \`${mac_x64_appcast_build:-$mac_x64_build}\`"
+  fi
   echo
-  echo "Windows and macOS are resolved from different official upstream packages, so their version numbers may not always match exactly."
+  echo "Windows, macOS DMGs, and macOS Sparkle updates are resolved from different official upstream packages, so their version numbers or builds may not always match exactly."
   echo
   echo "<!-- latest-links-en:start -->"
   echo "## Latest quick downloads"
