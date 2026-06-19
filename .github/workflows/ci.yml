@@ -59,6 +59,10 @@ jobs:
         shell: bash
         run: scripts/test-probe-release-windows-rollout.sh
 
+      - name: Test Windows download retry fixture
+        shell: bash
+        run: scripts/test-download-windows-retry.sh
+
       - name: Test appcast generation fixture
         shell: bash
         run: scripts/test-build-appcast.sh

@@ -1,9 +1,19 @@
 param(
   [string] $OutDir = "dist",
-  [string] $ManifestPath = ""
+  [string] $ManifestPath = "",
+  [int] $StoreLinkMaxAttempts = 12,
+  [int] $StoreLinkRetryDelaySeconds = 30
 )
 
 $ErrorActionPreference = "Stop"
+
+if ($StoreLinkMaxAttempts -lt 1) {
+  throw "StoreLinkMaxAttempts must be at least 1."
+}
+
+if ($StoreLinkRetryDelaySeconds -lt 0) {
+  throw "StoreLinkRetryDelaySeconds must be non-negative."
+}
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
@@ -26,21 +36,60 @@ if ($ManifestPath) {
   }
 }
 
-$linkLine = dotnet run --project scripts/store-link -- 9PLM9XGG6VKS x64 |
-  Where-Object { $_ -match "^OpenAI\.Codex_" } |
-  Select-Object -First 1
+function Resolve-StorePackageLink {
+  param(
+    [string] $ExpectedPackageMoniker
+  )
 
-if (-not $linkLine) {
-  throw "No Microsoft Store package link was resolved."
+  $lastError = "No Microsoft Store package link was resolved."
+
+  for ($attempt = 1; $attempt -le $StoreLinkMaxAttempts; $attempt++) {
+    Write-Host "Resolving Microsoft Store package link (attempt $attempt/$StoreLinkMaxAttempts)"
+
+    $resolverOutput = & dotnet run --project scripts/store-link -- 9PLM9XGG6VKS x64
+    if ($LASTEXITCODE -ne 0) {
+      $lastError = "Microsoft Store resolver failed with exit code $LASTEXITCODE."
+    } else {
+      $linkLine = $resolverOutput |
+        Where-Object { $_ -match "^OpenAI\.Codex_" } |
+        Select-Object -First 1
+
+      if (-not $linkLine) {
+        $lastError = "No Microsoft Store package link was resolved."
+      } else {
+        $parts = $linkLine -split "`t", 2
+        if ($parts.Count -lt 2 -or -not $parts[1]) {
+          $lastError = "Microsoft Store package link is malformed: $linkLine"
+        } else {
+          $packageMoniker = $parts[0]
+          $downloadUrl = $parts[1]
+
+          if ($ExpectedPackageMoniker -and $packageMoniker -ne $ExpectedPackageMoniker) {
+            $lastError = "Microsoft Store package changed after probe. Expected $ExpectedPackageMoniker, got $packageMoniker."
+          } else {
+            return [pscustomobject]@{
+              PackageMoniker = $packageMoniker
+              DownloadUrl = $downloadUrl
+            }
+          }
+        }
+      }
+    }
+
+    if ($attempt -lt $StoreLinkMaxAttempts) {
+      Write-Warning "$lastError Retrying in $StoreLinkRetryDelaySeconds seconds."
+      if ($StoreLinkRetryDelaySeconds -gt 0) {
+        Start-Sleep -Seconds $StoreLinkRetryDelaySeconds
+      }
+    }
+  }
+
+  throw $lastError
 }
 
-$parts = $linkLine -split "`t", 2
-$packageMoniker = $parts[0]
-$downloadUrl = $parts[1]
-
-if ($expectedPackageMoniker -and $packageMoniker -ne $expectedPackageMoniker) {
-  throw "Microsoft Store package changed after probe. Expected $expectedPackageMoniker, got $packageMoniker."
-}
+$resolvedPackage = Resolve-StorePackageLink -ExpectedPackageMoniker $expectedPackageMoniker
+$packageMoniker = $resolvedPackage.PackageMoniker
+$downloadUrl = $resolvedPackage.DownloadUrl
 
 $target = Join-Path $OutDir "$packageMoniker.Msix"
 
