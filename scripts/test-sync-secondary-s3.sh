@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+tmp_dir="$(mktemp -d)"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cleanup() {
+  rm -rf "$tmp_dir"
+}
+trap cleanup EXIT
+
+mkdir -p "$tmp_dir/bin" "$tmp_dir/artifacts"
+aws_log="$tmp_dir/aws.log"
+config_snapshot="$tmp_dir/aws-config.snapshot"
+fail_once_marker="$tmp_dir/failed-once"
+: > "$aws_log"
+
+cat > "$tmp_dir/bin/aws" <<'AWS'
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf 'CALL %s\n' "$*" >> "${TEST_AWS_LOG:?TEST_AWS_LOG must be set}"
+if [[ -n "${AWS_CONFIG_FILE:-}" && ! -f "${TEST_AWS_CONFIG_SNAPSHOT:?TEST_AWS_CONFIG_SNAPSHOT must be set}" ]]; then
+  cp "$AWS_CONFIG_FILE" "$TEST_AWS_CONFIG_SNAPSHOT"
+fi
+printf 'ENV AWS_MAX_ATTEMPTS=%s AWS_RETRY_MODE=%s\n' "${AWS_MAX_ATTEMPTS:-}" "${AWS_RETRY_MODE:-}" >> "$TEST_AWS_LOG"
+
+target=""
+for arg in "$@"; do
+  case "$arg" in
+    s3://*) target="$arg" ;;
+  esac
+done
+
+if [[ "$target" == "s3://secondary-bucket/latest/mac-arm64" && ! -f "${TEST_FAIL_ONCE_MARKER:?TEST_FAIL_ONCE_MARKER must be set}" ]]; then
+  touch "$TEST_FAIL_ONCE_MARKER"
+  echo "upload failed: test Connect timeout on endpoint URL: \"$target?uploads\"" >&2
+  exit 1
+fi
+
+exit 0
+AWS
+chmod +x "$tmp_dir/bin/aws"
+
+printf 'arm dmg' > "$tmp_dir/artifacts/Codex-mac-arm64.dmg"
+printf 'intel dmg' > "$tmp_dir/artifacts/Codex-mac-x64.dmg"
+printf 'win msix' > "$tmp_dir/artifacts/Codex.msix"
+printf 'checksums' > "$tmp_dir/artifacts/SHA256SUMS.txt"
+printf '{"schemaVersion":2}' > "$tmp_dir/artifacts/release-manifest.json"
+printf 'arm zip' > "$tmp_dir/artifacts/Codex-darwin-arm64-1.2.3.zip"
+printf 'intel zip' > "$tmp_dir/artifacts/Codex-darwin-x64-1.2.3.zip"
+printf 'arm delta' > "$tmp_dir/artifacts/Codex1234-1200-arm64.delta"
+printf 'intel delta' > "$tmp_dir/artifacts/Codex1234-1200-x64.delta"
+
+cat > "$tmp_dir/artifacts/appcast.xml" <<'XML'
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <item>
+      <sparkle:deltas>
+        <enclosure url="https://example.test/latest/mac/arm64/Codex1234-1200-arm64.delta" />
+      </sparkle:deltas>
+    </item>
+  </channel>
+</rss>
+XML
+
+cat > "$tmp_dir/artifacts/appcast-x64.xml" <<'XML'
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <item>
+      <sparkle:deltas>
+        <enclosure url="https://example.test/latest/mac/intel/Codex1234-1200-x64.delta" />
+      </sparkle:deltas>
+    </item>
+  </channel>
+</rss>
+XML
+
+(
+  cd "$repo_root"
+  PATH="$tmp_dir/bin:$PATH" \
+  TEST_AWS_LOG="$aws_log" \
+  TEST_AWS_CONFIG_SNAPSHOT="$config_snapshot" \
+  TEST_FAIL_ONCE_MARKER="$fail_once_marker" \
+  SECONDARY_S3_ENDPOINT="https://s3.example.invalid" \
+  SECONDARY_S3_BUCKET="secondary-bucket" \
+  SECONDARY_S3_REGION="auto" \
+  SECONDARY_S3_ACCESS_KEY_ID="key" \
+  SECONDARY_S3_SECRET_ACCESS_KEY="secret" \
+  SECONDARY_S3_UPLOAD_ATTEMPTS=2 \
+  SECONDARY_S3_RETRY_SLEEP_SECONDS=0 \
+  SECONDARY_S3_CONNECT_TIMEOUT_SECONDS=7 \
+  SECONDARY_S3_READ_TIMEOUT_SECONDS=11 \
+  SECONDARY_S3_AWS_MAX_ATTEMPTS=5 \
+  SECONDARY_S3_AWS_RETRY_MODE=standard \
+  SECONDARY_S3_MULTIPART_THRESHOLD=16MB \
+  SECONDARY_S3_MULTIPART_CHUNKSIZE=32MB \
+  SECONDARY_S3_MAX_CONCURRENT_REQUESTS=1 \
+    scripts/sync-secondary-s3.sh \
+      "$tmp_dir/artifacts/Codex-mac-arm64.dmg" \
+      "$tmp_dir/artifacts/Codex-mac-x64.dmg" \
+      "$tmp_dir/artifacts/Codex.msix" \
+      "$tmp_dir/artifacts/SHA256SUMS.txt" \
+      "$tmp_dir/artifacts/release-manifest.json" \
+      "$tmp_dir/artifacts/Codex-darwin-arm64-1.2.3.zip" \
+      "$tmp_dir/artifacts/Codex-darwin-x64-1.2.3.zip" \
+      "$tmp_dir/artifacts/appcast.xml" \
+      "$tmp_dir/artifacts/appcast-x64.xml"
+)
+
+test "$(grep -c 's3://secondary-bucket/latest/mac-arm64' "$aws_log")" = "2"
+grep -Fq -- '--cli-connect-timeout 7' "$aws_log"
+grep -Fq -- '--cli-read-timeout 11' "$aws_log"
+grep -Fq 'ENV AWS_MAX_ATTEMPTS=5 AWS_RETRY_MODE=standard' "$aws_log"
+grep -Fq 's3://secondary-bucket/latest/win' "$aws_log"
+grep -Fq 's3://secondary-bucket/latest/mac/arm64/Codex1234-1200-arm64.delta' "$aws_log"
+grep -Fq 's3://secondary-bucket/latest/appcast.xml' "$aws_log"
+
+grep -Fq 'max_attempts = 5' "$config_snapshot"
+grep -Fq 'max_concurrent_requests = 1' "$config_snapshot"
+grep -Fq 'multipart_threshold = 16MB' "$config_snapshot"
+grep -Fq 'multipart_chunksize = 32MB' "$config_snapshot"
+
+echo "sync-secondary-s3 retry fixture PASS"

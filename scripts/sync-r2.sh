@@ -28,6 +28,7 @@ upload_file() {
   local download_name="$3"
   local content_type_source="$4"
   local cache_control="${R2_CACHE_CONTROL:-no-cache}"
+  local timeout_args=()
 
   if [[ ! -f "$file" ]]; then
     echo "Not a file: $file" >&2
@@ -41,6 +42,13 @@ upload_file() {
 
   content_type="$(content_type_for "$content_type_source")"
 
+  if [[ -n "${R2_CLI_CONNECT_TIMEOUT_SECONDS:-}" ]]; then
+    timeout_args+=(--cli-connect-timeout "$R2_CLI_CONNECT_TIMEOUT_SECONDS")
+  fi
+  if [[ -n "${R2_CLI_READ_TIMEOUT_SECONDS:-}" ]]; then
+    timeout_args+=(--cli-read-timeout "$R2_CLI_READ_TIMEOUT_SECONDS")
+  fi
+
   echo "Uploading $file to r2://$bucket/$object_path"
   aws s3 cp "$file" "s3://$bucket/$object_path" \
     --endpoint-url "$R2_S3_ENDPOINT" \
@@ -48,7 +56,8 @@ upload_file() {
     --content-type "$content_type" \
     --content-disposition "attachment; filename=\"$download_name\"" \
     --cache-control "$cache_control" \
-    --no-progress
+    --no-progress \
+    "${timeout_args[@]}"
 }
 
 if [[ "${1:-}" == "--object" ]]; then

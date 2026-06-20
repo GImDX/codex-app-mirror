@@ -63,6 +63,10 @@ jobs:
         shell: bash
         run: scripts/test-download-windows-retry.sh
 
+      - name: Test secondary S3 retry fixture
+        shell: bash
+        run: scripts/test-sync-secondary-s3.sh
+
       - name: Test appcast generation fixture
         shell: bash
         run: scripts/test-build-appcast.sh
