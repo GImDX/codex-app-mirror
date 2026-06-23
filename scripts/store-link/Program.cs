@@ -61,6 +61,8 @@ internal static class Program
         130040031,
         132387090,
         132393049,
+        // Required for FE3 to consider Windows Desktop ARM64 Store packages applicable.
+        133399034,
         138537048,
         140377312,
         143747671,
