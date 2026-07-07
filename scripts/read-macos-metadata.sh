@@ -6,6 +6,8 @@ arm64_dmg="${2:-dist/macos/Codex-mac-arm64.dmg}"
 x64_dmg="${3:-dist/macos/Codex-mac-x64.dmg}"
 arm64_zip="${4:-}"
 x64_zip="${5:-}"
+x64_backend_input_dir="${6:-}"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 require() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -196,7 +198,9 @@ inspect_dmg() {
   local arch="$1"
   local dmg="$2"
   local json_path="$3"
+  local backend_input_dir="${4:-}"
   local volume
+  local backend_version
   local sha256
 
   mount_dmg "$dmg"
@@ -205,8 +209,29 @@ inspect_dmg() {
   find_single_top_level_app "$volume" "$dmg"
   inspect_app_identity "$dmg" "$found_app_path"
   sha256="$(shasum -a 256 "$dmg" | awk '{print $1}')"
+  backend_version="$(python3 "$script_dir/read-codex-backend-version.py" "$found_app_path" 2>/dev/null || true)"
 
-  python3 - "$json_path" "$arch" "$dmg" "$sha256" "$identity_short_version" "$identity_bundle_version" "$identity_bundle_id" "$identity_bundle_name" "$identity_bundle_executable" "$identity_minimum_system_version" "$identity_team_identifier" "$identity_sparkle_public_ed_key" <<'PY'
+  if [[ -n "$backend_input_dir" ]]; then
+    mkdir -p "$backend_input_dir"
+    if ! python3 "$script_dir/read-codex-backend-version.py" \
+      --prepare-input-dir "$backend_input_dir" \
+      --source-package "$dmg" \
+      --source-package-sha256 "$sha256" \
+      --platform macos \
+      --architecture "$arch" \
+      "$found_app_path" > "$tmp_dir/backend-input-$arch.log"; then
+      echo "Could not prepare macOS $arch backend input; metadata will remain unavailable." >&2
+      rm -f \
+        "$backend_input_dir/codex" \
+        "$backend_input_dir/codex.exe" \
+        "$backend_input_dir/backend-input.json"
+      printf '%s\n' \
+        "{\"architecture\":\"$arch\",\"platform\":\"macos\",\"schemaVersion\":1,\"status\":\"unavailable\"}" \
+        > "$backend_input_dir/backend-input.json"
+    fi
+  fi
+
+  python3 - "$json_path" "$arch" "$dmg" "$sha256" "$identity_short_version" "$identity_bundle_version" "$identity_bundle_id" "$identity_bundle_name" "$identity_bundle_executable" "$identity_minimum_system_version" "$identity_team_identifier" "$identity_sparkle_public_ed_key" "$backend_version" <<'PY'
 import json
 import os
 import sys
@@ -224,6 +249,7 @@ import sys
     minimum,
     team_identifier,
     sparkle_public_ed_key,
+    backend,
 ) = sys.argv[1:]
 payload = {
     "architecture": arch,
@@ -238,6 +264,8 @@ payload = {
     "teamIdentifier": team_identifier,
     "sparklePublicEdKey": sparkle_public_ed_key,
 }
+if backend:
+    payload["backendVersion"] = backend
 with open(out, "w", encoding="utf-8") as handle:
     json.dump(payload, handle, indent=2, sort_keys=True)
     handle.write("\n")
@@ -300,7 +328,7 @@ PY
 mkdir -p "$(dirname "$output_path")"
 
 inspect_dmg arm64 "$arm64_dmg" "$tmp_dir/arm64.json"
-inspect_dmg x64 "$x64_dmg" "$tmp_dir/x64.json"
+inspect_dmg x64 "$x64_dmg" "$tmp_dir/x64.json" "$x64_backend_input_dir"
 
 if [[ -n "$arm64_zip" ]]; then
   verify_sparkle_archive arm64 "$arm64_zip" "$tmp_dir/arm64.json"

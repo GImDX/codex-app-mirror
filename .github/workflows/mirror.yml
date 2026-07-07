@@ -84,7 +84,16 @@ jobs:
             dist/macos/Codex-mac-arm64.dmg \
             dist/macos/Codex-mac-x64.dmg \
             "dist/macos/$arm_zip_basename" \
-            "dist/macos/$x64_zip_basename"
+            "dist/macos/$x64_zip_basename" \
+            dist/macos-x64-backend-input
+
+      - name: Upload macOS Intel backend input
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: codex-macos-x64-backend-input
+          path: dist/macos-x64-backend-input/*
+          if-no-files-found: error
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v7
@@ -240,6 +249,31 @@ jobs:
           path: dist/windows-arm64-backend/*
           if-no-files-found: error
 
+  macos_x64_backend:
+    name: Read macOS Intel backend metadata
+    runs-on: macos-15-intel
+    continue-on-error: true
+    timeout-minutes: 30
+    needs:
+      - probe
+      - macos
+    if: needs.probe.outputs.should_release == 'true'
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: codex-macos-x64-backend-input
+          path: dist/macos-x64-backend-input
+
+      - name: Read macOS Intel backend metadata
+        run: bash scripts/read-macos-backend-metadata.sh dist/macos-x64-backend/macos-backend-x64.json x64 dist/macos-x64-backend-input/backend-input.json
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: codex-macos-x64-backend
+          path: dist/macos-x64-backend/*
+          if-no-files-found: error
   release:
     name: Publish release
     runs-on: ubuntu-latest
@@ -251,6 +285,7 @@ jobs:
       - macos
       - windows
       - windows_arm64_backend
+      - macos_x64_backend
     steps:
       - uses: actions/checkout@v6
 

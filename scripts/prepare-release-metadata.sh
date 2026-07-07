@@ -295,8 +295,11 @@ if [[ "$windows_arm64_probe_downloadable" == "true" && -n "$windows_arm64_packag
 fi
 
 windows_arm64_release_app_version="$windows_arm64_app_version"
-mac_arm_backend_version=""
-mac_x64_backend_version=""
+mac_arm_backend_version="$(jq -r '.macos.arm64.backendVersion // empty' "$macos_metadata")"
+mac_x64_backend_version="$(jq -r '.macos.x64.backendVersion // empty' "$macos_metadata")"
+if [[ -z "$mac_x64_backend_version" ]]; then
+  mac_x64_backend_version="$(json_backend_version "$artifacts_dir/codex-macos-x64-backend/macos-backend-x64.json")"
+fi
 
 previous_latest_available=false
 previous_windows_arm64_json="null"
@@ -448,6 +451,8 @@ jq \
   --arg windowsArm64Status "$windows_arm64_status" \
   --arg windowsArm64AppVersion "$windows_arm64_app_version" \
   --arg windowsArm64BackendVersion "$windows_arm64_backend_version" \
+  --arg macosArm64BackendVersion "$mac_arm_backend_version" \
+  --arg macosX64BackendVersion "$mac_x64_backend_version" \
   --arg platformCompleteness "$platform_completeness" \
   '
   .schemaVersion = 5
@@ -500,6 +505,11 @@ jq \
   | .sources.macos.arm64.sparkleArchiveIdentityVerified = ($mac[0].macos.arm64.sparkleArchiveIdentityVerified // false)
   | .sources.macos.arm64.minimumSystemVersion = $mac[0].macos.arm64.minimumSystemVersion
   | .sources.macos.arm64.sha256 = $mac[0].macos.arm64.sha256
+  | if $macosArm64BackendVersion != "" then
+      .sources.macos.arm64.backendVersion = $macosArm64BackendVersion
+    else
+      del(.sources.macos.arm64.backendVersion)
+    end
   | .sources.macos.arm64.downloadable = true
   | .sources.macos.arm64.status = "downloadable"
   | .sources.macos.arm64.currentForCodexVersion = $includeMacosArm64
@@ -516,6 +526,11 @@ jq \
   | .sources.macos.x64.sparkleArchiveIdentityVerified = ($mac[0].macos.x64.sparkleArchiveIdentityVerified // false)
   | .sources.macos.x64.minimumSystemVersion = $mac[0].macos.x64.minimumSystemVersion
   | .sources.macos.x64.sha256 = $mac[0].macos.x64.sha256
+  | if $macosX64BackendVersion != "" then
+      .sources.macos.x64.backendVersion = $macosX64BackendVersion
+    else
+      del(.sources.macos.x64.backendVersion)
+    end
   | .sources.macos.x64.downloadable = true
   | .sources.macos.x64.status = "downloadable"
   | .sources.macos.x64.currentForCodexVersion = $includeMacosX64
@@ -539,6 +554,8 @@ jq \
       macosCommonShortVersion: $mac[0].commonShortVersion,
       macosCommonBundleVersion: $mac[0].commonBundleVersion,
       macosVersionsMatch: $mac[0].versionsMatch,
+      macosArm64BackendVersion: $macosArm64BackendVersion,
+      macosX64BackendVersion: $macosX64BackendVersion,
       missingPlatforms: ([if $includeWindows then empty else "windows" end, if $includeMacos then empty else "macos" end]),
       missingArchitectures: ([
         if $includeWindowsX64 then empty else "windows-x64" end,
