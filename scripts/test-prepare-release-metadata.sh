@@ -29,10 +29,12 @@ header_size = 8 + len(header_json)
 asar = struct.pack("<IIII", 4, header_size, len(header_json) + 4, len(header_json)) + header_json + package_json
 with zipfile.ZipFile(msix_path, "w") as archive:
     archive.writestr("app/resources/app.asar", asar)
+    archive.writestr("app/resources/codex.exe", b"binary-prefix 0.1.2https://chatgpt.com/backend-api/ binary-suffix")
 PY
 }
 
 mkdir -p "$tmp_dir/artifacts/codex-macos" "$tmp_dir/artifacts/codex-windows"
+mkdir -p "$tmp_dir/artifacts/codex-windows-arm64-backend"
 mkdir -p "$tmp_dir/bin"
 
 printf 'arm' > "$tmp_dir/artifacts/codex-macos/Codex-mac-arm64.dmg"
@@ -40,13 +42,13 @@ printf 'x64' > "$tmp_dir/artifacts/codex-macos/Codex-mac-x64.dmg"
 printf 'armzip123' > "$tmp_dir/artifacts/codex-macos/Codex-darwin-arm64-1.2.3.zip"
 printf 'armzip124' > "$tmp_dir/artifacts/codex-macos/Codex-darwin-arm64-1.2.4.zip"
 printf 'x64zip123' > "$tmp_dir/artifacts/codex-macos/Codex-darwin-x64-1.2.3.zip"
-printf 'win' > "$tmp_dir/artifacts/codex-windows/OpenAI.Codex_1.2.3.4_x64__2p2nqsd0c76g0.Msix"
+write_minimal_msix "$tmp_dir/artifacts/codex-windows/OpenAI.Codex_1.2.3.4_x64__2p2nqsd0c76g0.Msix" 1.2.3
 write_minimal_msix "$tmp_dir/artifacts/codex-windows/OpenAI.Codex_1.2.3.4_arm64__2p2nqsd0c76g0.Msix" 1.2.3
 write_minimal_msix "$tmp_dir/minimal-9.8.7.Msix" 9.8.7
 
+test "$(python3 "$repo_root/scripts/read-windows-msix-version.py" "$tmp_dir/artifacts/codex-windows/OpenAI.Codex_1.2.3.4_x64__2p2nqsd0c76g0.Msix")" = "1.2.3"
 test "$(python3 "$repo_root/scripts/read-windows-msix-version.py" "$tmp_dir/artifacts/codex-windows/OpenAI.Codex_1.2.3.4_arm64__2p2nqsd0c76g0.Msix")" = "1.2.3"
 test "$(python3 "$repo_root/scripts/read-windows-msix-version.py" "$tmp_dir/minimal-9.8.7.Msix")" = "9.8.7"
-
 cat > "$tmp_dir/probe-manifest.json" <<'JSON'
 {
   "schemaVersion": 1,
@@ -121,8 +123,27 @@ cat > "$tmp_dir/macos-metadata.json" <<'JSON'
 }
 JSON
 
+cat > "$tmp_dir/artifacts/codex-windows/windows-backend-x64.json" <<'JSON'
+{
+  "architecture": "x64",
+  "backendVersion": "0.1.2",
+  "platform": "windows",
+  "status": "found"
+}
+JSON
+
+cat > "$tmp_dir/artifacts/codex-windows-arm64-backend/windows-backend-arm64.json" <<'JSON'
+{
+  "architecture": "arm64",
+  "backendVersion": "0.1.3",
+  "platform": "windows",
+  "status": "found"
+}
+JSON
+
 (
   cd "$tmp_dir"
+
   WINDOWS_APP_VERSION=1.2.3 "$repo_root/scripts/prepare-release-metadata.sh" \
     probe-manifest.json \
     macos-metadata.json \
@@ -147,10 +168,16 @@ JSON
   grep -F 'OpenAI.Codex_1.2.3.4_arm64__2p2nqsd0c76g0.Msix' SHA256SUMS.txt
   grep -F 'OpenAI.Codex_1.2.3.4_arm64__2p2nqsd0c76g0.Msix' latest-SHA256SUMS.txt
   grep -F '![Codex App Mirror](https://github.com/Wangnov/codex-app-mirror/releases/latest/download/status.png)' release-notes.md
-  grep -F '| Windows x64 | `1.2.3` | `1.2.3.4` |' release-notes.md
-  grep -F '| Windows ARM64 | `1.2.3` | `1.2.3.4` |' release-notes.md
+  grep -F '| Windows x64 | `1.2.3` | `0.1.2` | `1.2.3.4` |' release-notes.md
+  grep -F '| Windows ARM64 | `1.2.3` | `0.1.3` | `1.2.3.4` |' release-notes.md
   grep -F 'Windows x64: https://example.com/latest/win-x64' release-notes.md
-  grep -F '| macOS Apple Silicon | `1.2.3` | build `5` |' release-notes.md
+  test "$(jq -r '.schemaVersion' release-manifest.json)" = "4"
+  test "$(jq -r '.sources.windows.backendVersion' release-manifest.json)" = "0.1.2"
+  test "$(jq -r '.sources.windows.architectures.x64.backendVersion' release-manifest.json)" = "0.1.2"
+  test "$(jq -r '.sources.windows.architectures.arm64.backendVersion' release-manifest.json)" = "0.1.3"
+  test "$(jq -r '.derived.windowsBackendVersion' release-manifest.json)" = "0.1.2"
+  test "$(jq -r '.derived.windowsArm64BackendVersion' release-manifest.json)" = "0.1.3"
+  grep -F '| macOS Apple Silicon | `1.2.3` |  | build `5` |' release-notes.md
   grep -F 'These latest links roll forward per architecture:' release-notes.md
   test "$(jq -r '.schemaVersion' release-manifest.json)" = "4"
   test "$(jq -r '.derived.missingArchitectures | length' release-manifest.json)" = "0"

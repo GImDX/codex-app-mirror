@@ -98,6 +98,17 @@ jobs:
 
           ./scripts/download-windows.ps1 -OutDir dist/windows -ManifestPath probe-manifest.json
 
+      - name: Read Windows x64 backend metadata
+        shell: pwsh
+        run: |
+          $msix = Get-ChildItem -LiteralPath dist/windows -Filter '*_x64__*.Msix' | Select-Object -First 1
+          if ($null -eq $msix) {
+            throw 'Missing Windows x64 MSIX.'
+          }
+          $msixPath = $msix.FullName
+          python scripts/read-codex-backend-version.py --json --platform windows --architecture x64 "$msixPath" |
+            Set-Content -Encoding utf8 -Path dist/windows/windows-backend-x64.json
+
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v7
         with:
@@ -105,16 +116,55 @@ jobs:
           path: dist/windows/*
           if-no-files-found: error
 
+  windows_arm64_backend:
+    name: Read Windows ARM64 backend metadata
+    runs-on: windows-11-arm
+    continue-on-error: true
+    timeout-minutes: 30
+    needs:
+      - probe
+      - windows
+    if: needs.probe.outputs.should_release == 'true'
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: codex-windows
+          path: dist/windows
+
+      - name: Read Windows ARM64 backend metadata
+        shell: pwsh
+        run: |
+          $msix = Get-ChildItem -LiteralPath dist/windows -Filter '*_arm64__*.Msix' | Select-Object -First 1
+          if ($null -eq $msix) {
+            New-Item -ItemType Directory -Force -Path dist/windows-arm64-backend | Out-Null
+            '{"architecture":"arm64","platform":"windows","status":"unavailable"}' |
+              Set-Content -Encoding utf8 -Path dist/windows-arm64-backend/windows-backend-arm64.json
+            return
+          }
+          New-Item -ItemType Directory -Force -Path dist/windows-arm64-backend | Out-Null
+          $msixPath = $msix.FullName
+          python scripts/read-codex-backend-version.py --json --platform windows --architecture arm64 "$msixPath" |
+            Set-Content -Encoding utf8 -Path dist/windows-arm64-backend/windows-backend-arm64.json
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: codex-windows-arm64-backend
+          path: dist/windows-arm64-backend/*
+          if-no-files-found: error
+
   release:
     name: Publish release
     runs-on: ubuntu-latest
-    if: needs.probe.outputs.should_release == 'true'
+    if: always() && needs.probe.outputs.should_release == 'true' && needs.macos.result == 'success' && needs.windows.result == 'success'
     permissions:
       contents: write
     needs:
       - probe
       - macos
       - windows
+      - windows_arm64_backend
     steps:
       - uses: actions/checkout@v6
 

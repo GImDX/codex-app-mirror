@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
+import importlib.util
 import json
-import struct
 import sys
 import zipfile
+from pathlib import Path
+import struct
 
 
 def die(message):
@@ -135,25 +137,56 @@ def package_version_direct(zip_file, name):
         return ""
 
 
+def read_app_version(zip_file):
+    for name in app_asar_names(zip_file):
+        version = package_version_from_asar(zip_file, name)
+        if version:
+            return version
+
+    for name in direct_package_json_names(zip_file):
+        version = package_version_direct(zip_file, name)
+        if version:
+            return version
+
+    return ""
+
+
+def read_backend_version(msix_path):
+    helper_path = Path(__file__).with_name("read-codex-backend-version.py")
+    spec = importlib.util.spec_from_file_location("read_codex_backend_version", helper_path)
+    if spec is None or spec.loader is None:
+        return ""
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.read_backend_version(msix_path)
+
+
 def main(argv):
-    if len(argv) != 2:
-        die("Usage: read-windows-msix-version.py <OpenAI.Codex_...Msix>")
+    if len(argv) not in (2, 3):
+        die("Usage: read-windows-msix-version.py [--app-version|--backend-version] <OpenAI.Codex_...Msix>")
 
+    mode = "--app-version"
     msix_path = argv[1]
+    if len(argv) == 3:
+        mode = argv[1]
+        msix_path = argv[2]
+
+    if mode not in ("--app-version", "--backend-version"):
+        die(f"Unknown mode: {mode}")
+
+    if mode == "--backend-version":
+        version = read_backend_version(msix_path)
+        if version:
+            print(version)
+            return
+        die("Could not read Codex backend version from MSIX by running the packaged backend binary.")
+
     with zipfile.ZipFile(msix_path) as zip_file:
-        for name in app_asar_names(zip_file):
-            version = package_version_from_asar(zip_file, name)
-            if version:
-                print(version)
-                return
-
-        for name in direct_package_json_names(zip_file):
-            version = package_version_direct(zip_file, name)
-            if version:
-                print(version)
-                return
-
-    die("Could not find Codex package.json version in MSIX.")
+        version = read_app_version(zip_file)
+        if version:
+            print(version)
+            return
+        die("Could not find Codex package.json version in MSIX.")
 
 
 if __name__ == "__main__":
