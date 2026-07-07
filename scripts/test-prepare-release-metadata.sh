@@ -34,7 +34,7 @@ PY
 }
 
 mkdir -p "$tmp_dir/artifacts/codex-macos" "$tmp_dir/artifacts/codex-windows"
-mkdir -p "$tmp_dir/artifacts/codex-windows-arm64-backend"
+mkdir -p "$tmp_dir/artifacts/codex-windows-arm64-backend" "$tmp_dir/artifacts/codex-macos-x64-backend"
 mkdir -p "$tmp_dir/bin"
 
 printf 'arm' > "$tmp_dir/artifacts/codex-macos/Codex-mac-arm64.dmg"
@@ -105,6 +105,7 @@ cat > "$tmp_dir/macos-metadata.json" <<'JSON'
     "arm64": {
       "bundleShortVersion": "1.2.3",
       "bundleVersion": "5",
+      "backendVersion": "0.140.1",
       "bundleIdentifier": "com.openai.codex",
       "minimumSystemVersion": "12.0",
       "sha256": "arm64-sha256"
@@ -141,6 +142,14 @@ cat > "$tmp_dir/artifacts/codex-windows-arm64-backend/windows-backend-arm64.json
 }
 JSON
 
+cat > "$tmp_dir/artifacts/codex-macos-x64-backend/macos-backend-x64.json" <<'JSON'
+{
+  "architecture": "x64",
+  "backendVersion": "0.140.2",
+  "platform": "macos",
+  "status": "found"
+}
+JSON
 (
   cd "$tmp_dir"
 
@@ -177,12 +186,16 @@ JSON
   test "$(jq -r '.sources.windows.architectures.arm64.backendVersion' release-manifest.json)" = "0.1.3"
   test "$(jq -r '.derived.windowsBackendVersion' release-manifest.json)" = "0.1.2"
   test "$(jq -r '.derived.windowsArm64BackendVersion' release-manifest.json)" = "0.1.3"
-  grep -F '| macOS Apple Silicon | `1.2.3` |  | build `5` |' release-notes.md
+  grep -F '| macOS Apple Silicon | `1.2.3` | `0.140.1` | build `5` |' release-notes.md
   grep -F 'These latest links roll forward per architecture:' release-notes.md
   test "$(jq -r '.schemaVersion' release-manifest.json)" = "4"
   test "$(jq -r '.derived.missingArchitectures | length' release-manifest.json)" = "0"
   test "$(jq -r '.sources.windows.architectures.arm64.currentForCodexVersion' release-manifest.json)" = "true"
   test "$(jq -r '.sources.windows.architectures.arm64.currentLocalArtifact' release-manifest.json)" = "true"
+  test "$(jq -r '.sources.macos.arm64.backendVersion' release-manifest.json)" = "0.140.1"
+  test "$(jq -r '.sources.macos.x64.backendVersion' release-manifest.json)" = "0.140.2"
+  test "$(jq -r '.derived.macosArm64BackendVersion' release-manifest.json)" = "0.140.1"
+  test "$(jq -r '.derived.macosX64BackendVersion' release-manifest.json)" = "0.140.2"
   test "$(jq -r '.derived.latestChecksums["Codex-mac-arm64.dmg"] | test("^[0-9a-f]{64}$")' release-manifest.json)" = "true"
   test "$(jq -r '.derived.latestChecksums["OpenAI.Codex_1.2.3.4_arm64__2p2nqsd0c76g0.Msix"] | test("^[0-9a-f]{64}$")' release-manifest.json)" = "true"
 
@@ -478,6 +491,10 @@ SUMS
     test "$(jq -r '.sources.macos.x64.currentForCodexVersion' release-manifest.json)" = "false"
     test "$(jq -r '.sources.windows.architectures.arm64.currentForCodexVersion' release-manifest.json)" = "false"
     test "$(jq -r '.sources.windows.architectures.arm64.currentLocalArtifact' release-manifest.json)" = "true"
+    test "$(jq -r '.sources.macos.arm64.backendVersion' release-manifest.json)" = "0.140.1"
+    test "$(jq -r '.sources.macos.x64.backendVersion' release-manifest.json)" = "0.140.2"
+    test "$(jq -r '.derived.macosArm64BackendVersion' release-manifest.json)" = "0.140.1"
+    test "$(jq -r '.derived.macosX64BackendVersion' release-manifest.json)" = "0.140.2"
     grep -F '这些 latest 链接按架构滚动' release-notes.md
   )
 
