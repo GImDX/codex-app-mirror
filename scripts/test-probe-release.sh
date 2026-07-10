@@ -383,7 +383,7 @@ case "$url" in
 JSON
     ;;
   *windows-store-update.json)
-    printf '{"buildVersion":"1.2.3.4","storeProductId":"9PLM9XGG6VKS","packageIdentity":"OpenAI.Codex_2p2nqsd0c76g0"}\n'
+    printf '{"buildVersion":"1.2.3.4","storeProductId":"9PLM9XGG6VKS","packageIdentity":"%s"}\n' "${TEST_WINDOWS_UPDATE_IDENTITY:-OpenAI.Codex}"
     ;;
   *codexapp.agentsmirror.com/latest/appcast.xml*)
     cat "${TEST_PUBLIC_APPCAST:?TEST_PUBLIC_APPCAST must be set}"
@@ -470,6 +470,31 @@ assert_unsafe_appcast_rejected() {
 
 assert_unsafe_appcast_rejected full 'URL is not an absolute HTTPS URL'
 assert_unsafe_appcast_rejected delta 'appcast delta enclosure has unsafe basename'
+
+set +e
+windows_identity_output="$(
+  cd "$repo_root"
+  PATH="$tmp_dir/bin:$PATH" \
+  TEST_GH_LOG="$gh_log" \
+  TEST_LATEST_TAG="$latest_tag" \
+  TEST_LATEST_MANIFEST="$tmp_dir/latest-release-manifest.json" \
+  TEST_LATEST_CHECKSUMS="$tmp_dir/latest-SHA256SUMS.txt" \
+  TEST_PUBLIC_MANIFEST="$tmp_dir/public-manifest.json" \
+  TEST_PUBLIC_APPCAST="$tmp_dir/public-appcast.xml" \
+  TEST_PUBLIC_APPCAST_X64="$tmp_dir/public-appcast-x64.xml" \
+  TEST_WINDOWS_UPDATE_IDENTITY="OpenAI.CodexBeta" \
+  STORE_LINK_MAX_ATTEMPTS=1 \
+  MANIFEST_PATH="$tmp_dir/wrong-windows-identity.json" \
+    scripts/probe-release.sh 2>&1
+)"
+windows_identity_status=$?
+set -e
+if [[ "$windows_identity_status" -eq 0 ]] ||
+   ! grep -Fq 'expected OpenAI.Codex, got OpenAI.CodexBeta' <<<"$windows_identity_output"; then
+  echo "Expected the Stable probe to reject a non-Stable Windows update identity" >&2
+  printf '%s\n' "$windows_identity_output" >&2
+  exit 1
+fi
 
 jq '
   .schemaVersion = 5

@@ -312,7 +312,7 @@ case "$url" in
 JSON
     ;;
   *windows-store-update.json)
-    printf '{"buildVersion":"1.2.3.4","storeProductId":"9PLM9XGG6VKS","packageIdentity":"OpenAI.Codex_2p2nqsd0c76g0"}\n'
+    printf '{"buildVersion":"1.2.3.4","storeProductId":"9PLM9XGG6VKS","packageIdentity":"OpenAI.Codex"}\n'
     ;;
   *codexapp.agentsmirror.com/latest/appcast.xml*)
     cat "${TEST_PUBLIC_APPCAST:?TEST_PUBLIC_APPCAST must be set}"

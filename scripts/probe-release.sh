@@ -924,6 +924,14 @@ windows_update_json="$(curl_get "Windows update manifest" "$windows_update_manif
 windows_update_version="$(jq -r '.buildVersion // empty' <<<"$windows_update_json")"
 windows_update_product_id="$(jq -r '.storeProductId // empty' <<<"$windows_update_json")"
 windows_update_package_identity="$(jq -r '.packageIdentity // empty' <<<"$windows_update_json")"
+if [[ "$windows_update_product_id" != "$product_id" ]]; then
+  echo "Unexpected Windows update manifest Store Product ID: expected $product_id, got ${windows_update_product_id:-<empty>}." >&2
+  exit 1
+fi
+if [[ "$windows_update_package_identity" != "$package_identity" ]]; then
+  echo "Unexpected Windows update manifest package identity: expected $package_identity, got ${windows_update_package_identity:-<empty>}." >&2
+  exit 1
+fi
 windows_x64_catalog_package="$(catalog_field "$windows_x64_catalog" PackageFullName)"
 windows_x64_catalog_version=""
 if [[ -n "$windows_x64_catalog_package" ]]; then
