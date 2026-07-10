@@ -560,9 +560,6 @@ jobs:
               --endpoint-url "$R2_S3_ENDPOINT" \
               --region "${AWS_DEFAULT_REGION:-auto}"
           fi
-          bash .mirror-kit/scripts/sync-r2.sh --object "$R2_BUCKET_NAME" latest/checksums latest-SHA256SUMS.txt SHA256SUMS.txt
-          bash .mirror-kit/scripts/sync-r2.sh --object "$R2_BUCKET_NAME" latest/manifest release-manifest.json release-manifest.json
-
           # Sparkle archives first, then the appcasts that reference them, so the
           # feed never advertises an enclosure that is not yet downloadable. The
           # full .zip and every .delta go up before the appcasts are published.
@@ -578,6 +575,12 @@ jobs:
           done < /tmp/x64-delta-basenames.txt
           upload_appcast latest/appcast.xml appcast.xml
           upload_appcast latest/appcast-x64.xml appcast-x64.xml
+          bash .mirror-kit/scripts/sync-r2.sh --object "$R2_BUCKET_NAME" latest/checksums latest-SHA256SUMS.txt SHA256SUMS.txt
+
+          # Commit marker only: R2 has no multi-object transaction, so this does
+          # not claim strict atomicity. Publishing the manifest last does ensure
+          # it never advertises an archive or appcast that has not been uploaded.
+          bash .mirror-kit/scripts/sync-r2.sh --object "$R2_BUCKET_NAME" latest/manifest release-manifest.json release-manifest.json
 
           curl -fsSL \
             --retry 5 \

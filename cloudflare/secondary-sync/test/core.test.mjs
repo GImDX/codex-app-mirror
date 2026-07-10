@@ -4,6 +4,7 @@ import {
   buildObjectPlan,
   cleanupStageObjects,
   commitObjectToAliases,
+  commitOrder,
   deleteStaleAliasObjects,
   decoratePlanWithStage,
   deriveReleaseTag,
@@ -36,6 +37,16 @@ test("buildObjectPlan derives release tag and shares the Windows x64 upload", ()
     "latest/mac/arm64/Codex-darwin-arm64-2.0.0.zip",
   );
   assert.ok(plan.keepLatestMacKeys.includes("latest/mac/arm64/Codex9999-live-arm64.delta"));
+});
+
+test("commitOrder advances checksums and manifest only after referenced objects", () => {
+  const plan = buildObjectPlan(fixtureManifest(), "codex-app-2.0.0");
+  const ordered = commitOrder(plan.items).map((item) => item.role);
+
+  assert.equal(ordered.at(-1), "manifest");
+  assert.equal(ordered.at(-2), "checksums");
+  assert.ok(ordered.indexOf("appcast") < ordered.indexOf("checksums"));
+  assert.ok(ordered.indexOf("archive") < ordered.indexOf("appcast"));
 });
 
 test("buildObjectPlan keeps a schema-4 fallback for the current public manifest", () => {

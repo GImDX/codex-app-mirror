@@ -599,7 +599,7 @@ function roleRank(role) {
     case "delta":
       return 21;
     case "checksums":
-      return 30;
+      return 90;
     case "appcast":
       return 40;
     case "manifest":
