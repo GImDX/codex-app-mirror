@@ -109,7 +109,7 @@ add_app() {
   local bundle_version="${9:-5059}"
   local app_path="$tmp_dir/volumes/$fixture_name/$app_name"
 
-  mkdir -p "$app_path/Contents/MacOS"
+  mkdir -p "$app_path/Contents/MacOS" "$app_path/Contents/Resources"
   python3 - "$app_path/Contents/Info.plist" "$bundle_name" "$bundle_executable" "$bundle_identifier" "$sparkle_public_ed_key" "$bundle_short_version" "$bundle_version" <<'PY'
 import plistlib
 import sys
@@ -129,6 +129,8 @@ with open(path, "wb") as handle:
 PY
   printf '#!/bin/sh\nexit 0\n' > "$app_path/Contents/MacOS/$bundle_executable"
   chmod +x "$app_path/Contents/MacOS/$bundle_executable"
+  printf '#!/bin/sh\nprintf "codex-cli 0.142.5\\n"\n' > "$app_path/Contents/Resources/codex"
+  chmod +x "$app_path/Contents/Resources/codex"
   printf '%s\n' "$team_identifier" > "$app_path/.fixture-team-identifier"
 }
 
@@ -164,6 +166,10 @@ make_volume invalid-signature
 add_app invalid-signature ChatGPT.app ChatGPT ChatGPT "$expected_bundle_identifier" "$expected_sparkle_public_ed_key"
 touch "$tmp_dir/volumes/invalid-signature/ChatGPT.app/.fixture-invalid-signature"
 
+make_volume missing-backend
+add_app missing-backend ChatGPT.app ChatGPT ChatGPT "$expected_bundle_identifier" "$expected_sparkle_public_ed_key"
+rm "$tmp_dir/volumes/missing-backend/ChatGPT.app/Contents/Resources/codex"
+
 printf '%s\n' "$tmp_dir/volumes/codex-zip" > "$tmp_dir/codex.zip"
 printf '%s\n' "$tmp_dir/volumes/chatgpt-zip" > "$tmp_dir/chatgpt.zip"
 printf '%s\n' "$tmp_dir/volumes/classic" > "$tmp_dir/classic.zip"
@@ -180,18 +186,34 @@ run_reader() {
 }
 
 output_json="$tmp_dir/macos-metadata.json"
+backend_input_dir="$tmp_dir/macos-x64-backend-input"
 run_reader \
   "$output_json" \
   "$tmp_dir/codex.dmg" \
   "$tmp_dir/chatgpt.dmg" \
   "$tmp_dir/codex.zip" \
-  "$tmp_dir/chatgpt.zip" > "$tmp_dir/success.log"
+  "$tmp_dir/chatgpt.zip" \
+  "$backend_input_dir" > "$tmp_dir/success.log"
 
-python3 - "$output_json" "$expected_sparkle_public_ed_key" <<'PY'
+python3 - \
+  "$output_json" \
+  "$expected_sparkle_public_ed_key" \
+  "$backend_input_dir/backend-input.json" \
+  "$backend_input_dir/codex" \
+  "$tmp_dir/chatgpt.dmg" <<'PY'
+import hashlib
 import json
+import os
 import sys
 
-path, expected_key = sys.argv[1:]
+path, expected_key, input_manifest_path, backend_path, source_package_path = sys.argv[1:]
+
+
+def sha256(path):
+    with open(path, "rb") as handle:
+        return hashlib.sha256(handle.read()).hexdigest()
+
+
 with open(path, encoding="utf-8") as handle:
     payload = json.load(handle)
 
@@ -208,8 +230,63 @@ for item in (arm64, x64):
     assert item["sparkleArchiveIdentityVerified"] is True, item
     assert item["bundleVersion"] == "5059", item
     assert item["sparkleArchiveBundleVersion"] == "5060", item
+    assert item["backendVersion"] == "0.142.5", item
 assert payload["versionsMatch"] is True, payload
+
+with open(input_manifest_path, encoding="utf-8") as handle:
+    prepared = json.load(handle)
+assert prepared["schemaVersion"] == 1, prepared
+assert prepared["status"] == "ready", prepared
+assert prepared["platform"] == "macos", prepared
+assert prepared["architecture"] == "x64", prepared
+assert prepared["sourcePackageFileName"] == "chatgpt.dmg", prepared
+assert prepared["sourcePackageSha256"] == sha256(source_package_path), prepared
+assert prepared["backendFileName"] == "codex", prepared
+assert prepared["backendSha256"] == sha256(backend_path), prepared
+assert sorted(os.listdir(os.path.dirname(input_manifest_path))) == ["backend-input.json", "codex"]
 PY
+
+backend_output_json="$tmp_dir/macos-x64-backend.json"
+env \
+  PATH="$tmp_dir/bin:$PATH" \
+  bash "$repo_root/scripts/read-macos-backend-metadata.sh" \
+    "$backend_output_json" \
+    x64 \
+    "$backend_input_dir/backend-input.json" > "$tmp_dir/backend-success.log"
+
+python3 - "$backend_output_json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    payload = json.load(handle)
+
+assert payload["architecture"] == "x64", payload
+assert payload["platform"] == "macos", payload
+assert payload["status"] == "found", payload
+assert payload["backendVersion"] == "0.142.5", payload
+PY
+
+printf '\ntampered\n' >> "$backend_input_dir/codex"
+tampered_output_json="$tmp_dir/macos-x64-tampered-backend.json"
+env \
+  PATH="$tmp_dir/bin:$PATH" \
+  bash "$repo_root/scripts/read-macos-backend-metadata.sh" \
+    "$tampered_output_json" \
+    x64 \
+    "$backend_input_dir/backend-input.json" > "$tmp_dir/backend-tampered.log"
+test "$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["status"])' "$tampered_output_json")" = "unavailable"
+
+missing_backend_input_dir="$tmp_dir/macos-missing-backend-input"
+run_reader \
+  "$tmp_dir/missing-backend-output.json" \
+  "$tmp_dir/codex.dmg" \
+  "$tmp_dir/missing-backend.dmg" \
+  "" \
+  "" \
+  "$missing_backend_input_dir" > "$tmp_dir/missing-backend.log"
+test "$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["status"])' "$missing_backend_input_dir/backend-input.json")" = "unavailable"
+test ! -e "$missing_backend_input_dir/codex"
 
 if ! grep -Fq -- '--verify --deep --strict --verbose=2' "$codesign_log"; then
   echo "Expected strict deep code signature verification" >&2

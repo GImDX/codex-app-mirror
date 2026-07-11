@@ -118,6 +118,23 @@ table_cell() {
   fi
 }
 
+table_code_cell() {
+  local value="${1:-}"
+  if [[ -n "$value" && "$value" != "null" ]]; then
+    printf '`%s`' "$value"
+  else
+    printf ''
+  fi
+}
+
+json_backend_version() {
+  local path="$1"
+  if [[ -f "$path" ]]; then
+    jq -r '.backendVersion // empty' "$path" 2>/dev/null || true
+  else
+    printf ''
+  fi
+}
 require find
 require jq
 require python3
@@ -228,6 +245,8 @@ windows_arm64_downloadable=false
 windows_arm64_local_latest=false
 windows_arm64_missing_reason="${windows_arm64_status:-catalog-only}"
 windows_arm64_app_version=""
+windows_backend_version="${WINDOWS_BACKEND_VERSION:-}"
+windows_arm64_backend_version="${WINDOWS_ARM64_BACKEND_VERSION:-}"
 windows_app_version="${WINDOWS_APP_VERSION:-}"
 if [[ -z "$windows_app_version" ]]; then
   windows_app_version="$(jq -r '.sources.windows.appVersion // .sources.windows.architectures.x64.appVersion // empty' "$probe_manifest")"
@@ -245,11 +264,18 @@ if [[ -z "$windows_app_version" || "$windows_app_version" == "null" ]]; then
   exit 1
 fi
 
+if [[ -z "$windows_backend_version" ]]; then
+  windows_backend_version="$(json_backend_version "$artifacts_dir/codex-windows/windows-backend-x64.json")"
+fi
+
 if [[ -n "$windows_arm64_msix" ]]; then
   if ! windows_arm64_app_version="$(python3 "$script_dir/read-windows-msix-version.py" "$windows_arm64_msix")"; then
     windows_arm64_app_version=""
     windows_arm64_status="skipped-version-unreadable"
     windows_arm64_missing_reason="$windows_arm64_status"
+  fi
+  if [[ -z "$windows_arm64_backend_version" ]]; then
+    windows_arm64_backend_version="$(json_backend_version "$artifacts_dir/codex-windows-arm64-backend/windows-backend-arm64.json")"
   fi
 fi
 
@@ -267,7 +293,13 @@ if [[ "$windows_arm64_probe_downloadable" == "true" && -n "$windows_arm64_packag
     windows_arm64_missing_reason=""
   fi
 fi
+
 windows_arm64_release_app_version="$windows_arm64_app_version"
+mac_arm_backend_version="$(jq -r '.macos.arm64.backendVersion // empty' "$macos_metadata")"
+mac_x64_backend_version="$(jq -r '.macos.x64.backendVersion // empty' "$macos_metadata")"
+if [[ -z "$mac_x64_backend_version" ]]; then
+  mac_x64_backend_version="$(json_backend_version "$artifacts_dir/codex-macos-x64-backend/macos-backend-x64.json")"
+fi
 
 previous_latest_available=false
 previous_windows_arm64_json="null"
@@ -312,6 +344,9 @@ if [[ "$previous_latest_available" == "true" &&
     windows_arm64_package_version="$(jq -r '.sources.windows.architectures.arm64.version // empty' "$tmp_previous_manifest")"
     windows_arm64_status="$(jq -r '.sources.windows.architectures.arm64.status // "downloadable"' "$tmp_previous_manifest")"
     windows_arm64_app_version="$(jq -r '.sources.windows.architectures.arm64.appVersion // empty' "$tmp_previous_manifest")"
+    if [[ -z "$windows_arm64_backend_version" ]]; then
+      windows_arm64_backend_version="$(jq -r '.sources.windows.architectures.arm64.backendVersion // empty' "$tmp_previous_manifest")"
+    fi
     windows_arm64_last_modified="$(jq -r '.sources.windows.architectures.arm64.lastModified // empty' "$tmp_previous_manifest")"
     windows_arm64_missing_reason=""
     preserved_windows_arm64=true
@@ -400,6 +435,7 @@ jq \
   --arg publishedAt "$published_at" \
   --arg windowsPackageVersion "$windows_package_version" \
   --arg windowsAppVersion "$windows_app_version" \
+  --arg windowsBackendVersion "$windows_backend_version" \
   --argjson includeWindows "$include_windows" \
   --argjson includeMacos "$include_macos" \
   --argjson includeWindowsX64 "$include_windows_x64" \
@@ -414,6 +450,9 @@ jq \
   --argjson previousWindowsArm64 "$previous_windows_arm64_json" \
   --arg windowsArm64Status "$windows_arm64_status" \
   --arg windowsArm64AppVersion "$windows_arm64_app_version" \
+  --arg windowsArm64BackendVersion "$windows_arm64_backend_version" \
+  --arg macosArm64BackendVersion "$mac_arm_backend_version" \
+  --arg macosX64BackendVersion "$mac_x64_backend_version" \
   --arg platformCompleteness "$platform_completeness" \
   '
   .schemaVersion = 5
@@ -421,8 +460,10 @@ jq \
   | .publishedAt = $publishedAt
   | .sources.windows.version = $windowsPackageVersion
   | .sources.windows.appVersion = $windowsAppVersion
+  | if $windowsBackendVersion != "" then .sources.windows.backendVersion = $windowsBackendVersion else del(.sources.windows.backendVersion) end
   | .sources.windows.architectures.x64.version = $windowsPackageVersion
   | .sources.windows.architectures.x64.appVersion = $windowsAppVersion
+  | if $windowsBackendVersion != "" then .sources.windows.architectures.x64.backendVersion = $windowsBackendVersion else del(.sources.windows.architectures.x64.backendVersion) end
   | .sources.windows.architectures.x64.downloadable = true
   | .sources.windows.architectures.x64.status = (.sources.windows.architectures.x64.status // "downloadable")
   | .sources.windows.architectures.x64.currentForCodexVersion = $includeWindowsX64
@@ -443,6 +484,11 @@ jq \
         else
           del(.sources.windows.architectures.arm64.appVersion)
         end
+      | if $windowsArm64BackendVersion != "" then
+          .sources.windows.architectures.arm64.backendVersion = $windowsArm64BackendVersion
+        else
+          del(.sources.windows.architectures.arm64.backendVersion)
+        end
     else
       .
     end
@@ -459,6 +505,11 @@ jq \
   | .sources.macos.arm64.sparkleArchiveIdentityVerified = ($mac[0].macos.arm64.sparkleArchiveIdentityVerified // false)
   | .sources.macos.arm64.minimumSystemVersion = $mac[0].macos.arm64.minimumSystemVersion
   | .sources.macos.arm64.sha256 = $mac[0].macos.arm64.sha256
+  | if $macosArm64BackendVersion != "" then
+      .sources.macos.arm64.backendVersion = $macosArm64BackendVersion
+    else
+      del(.sources.macos.arm64.backendVersion)
+    end
   | .sources.macos.arm64.downloadable = true
   | .sources.macos.arm64.status = "downloadable"
   | .sources.macos.arm64.currentForCodexVersion = $includeMacosArm64
@@ -475,6 +526,11 @@ jq \
   | .sources.macos.x64.sparkleArchiveIdentityVerified = ($mac[0].macos.x64.sparkleArchiveIdentityVerified // false)
   | .sources.macos.x64.minimumSystemVersion = $mac[0].macos.x64.minimumSystemVersion
   | .sources.macos.x64.sha256 = $mac[0].macos.x64.sha256
+  | if $macosX64BackendVersion != "" then
+      .sources.macos.x64.backendVersion = $macosX64BackendVersion
+    else
+      del(.sources.macos.x64.backendVersion)
+    end
   | .sources.macos.x64.downloadable = true
   | .sources.macos.x64.status = "downloadable"
   | .sources.macos.x64.currentForCodexVersion = $includeMacosX64
@@ -492,10 +548,14 @@ jq \
       syncLatest: $syncLatest,
       windowsPackageVersion: $windowsPackageVersion,
       windowsAppVersion: $windowsAppVersion,
+      windowsBackendVersion: $windowsBackendVersion,
       windowsArm64AppVersion: $windowsArm64AppVersion,
+      windowsArm64BackendVersion: $windowsArm64BackendVersion,
       macosCommonShortVersion: $mac[0].commonShortVersion,
       macosCommonBundleVersion: $mac[0].commonBundleVersion,
       macosVersionsMatch: $mac[0].versionsMatch,
+      macosArm64BackendVersion: $macosArm64BackendVersion,
+      macosX64BackendVersion: $macosX64BackendVersion,
       missingPlatforms: ([if $includeWindows then empty else "windows" end, if $includeMacos then empty else "macos" end]),
       missingArchitectures: ([
         if $includeWindowsX64 then empty else "windows-x64" end,
@@ -710,37 +770,37 @@ mv "$tmp_manifest" release-manifest.json
   echo
   echo "## 版本与发布时间"
   echo
-  echo "| 平台 | Codex 版本 | 平台包 / build | 官方发布时间 | 镜像发布时间 | 状态 |"
-  echo "|---|---:|---:|---|---|---|"
+  echo "| 平台 | Codex 版本 | 后端版本 | 平台包 / build | 官方发布时间 | 镜像发布时间 | 状态 |"
+  echo "|---|---:|---:|---:|---|---|---|"
   if [[ "$include_windows_x64" == "true" ]]; then
-    echo "| Windows x64 | \`${windows_app_version}\` | \`${windows_package_version}\` | $(table_cell "$windows_x64_last_modified") | ${published_at_label} | 已发布 |"
+    echo "| Windows x64 | \`${windows_app_version}\` | $(table_code_cell "$windows_backend_version") | \`${windows_package_version}\` | $(table_cell "$windows_x64_last_modified") | ${published_at_label} | 已发布 |"
   else
-    echo "| Windows x64 | \`${windows_app_version}\` | \`${windows_package_version}\` | $(table_cell "$windows_x64_last_modified") |  | 当前 latest，待目标版本 |"
+    echo "| Windows x64 | \`${windows_app_version}\` | $(table_code_cell "$windows_backend_version") | \`${windows_package_version}\` | $(table_cell "$windows_x64_last_modified") |  | 当前 latest，待目标版本 |"
   fi
   if [[ "$include_windows_arm64" == "true" ]]; then
-    echo "| Windows ARM64 | \`${windows_arm64_app_version}\` | \`${windows_arm64_package_version:-$windows_package_version}\` | $(table_cell "$windows_arm64_last_modified") | ${published_at_label} | 已发布 |"
+    echo "| Windows ARM64 | \`${windows_arm64_app_version}\` | $(table_code_cell "$windows_arm64_backend_version") | \`${windows_arm64_package_version:-$windows_package_version}\` | $(table_cell "$windows_arm64_last_modified") | ${published_at_label} | 已发布 |"
   elif [[ -n "$windows_arm64_package" ]]; then
     if [[ "$windows_arm64_downloadable" == "true" ]]; then
-      echo "| Windows ARM64 | \`${windows_arm64_app_version}\` | \`${windows_arm64_package_version:-$windows_package_version}\` | $(table_cell "$windows_arm64_last_modified") |  | 当前 latest，待目标版本 |"
+      echo "| Windows ARM64 | \`${windows_arm64_app_version}\` | $(table_code_cell "$windows_arm64_backend_version") | \`${windows_arm64_package_version:-$windows_package_version}\` | $(table_cell "$windows_arm64_last_modified") |  | 当前 latest，待目标版本 |"
     elif [[ "$windows_arm64_missing_reason" == "skipped-rollout-drift" ]]; then
-      echo "| Windows ARM64 |  | \`${windows_arm64_package_version:-$windows_package_version}\` |  |  | 下载阶段上游版本漂移，待下次探测补齐（\`${windows_arm64_status}\`） |"
+      echo "| Windows ARM64 |  |  | \`${windows_arm64_package_version:-$windows_package_version}\` |  |  | 下载阶段上游版本漂移，待下次探测补齐（\`${windows_arm64_status}\`） |"
     elif [[ "$windows_arm64_missing_reason" == "skipped-version-unreadable" ]]; then
-      echo "| Windows ARM64 |  | \`${windows_arm64_package_version:-$windows_package_version}\` |  |  | 无法读取内部版本，待下次探测补齐（\`${windows_arm64_status}\`） |"
+      echo "| Windows ARM64 |  |  | \`${windows_arm64_package_version:-$windows_package_version}\` |  |  | 无法读取内部版本，待下次探测补齐（\`${windows_arm64_status}\`） |"
     else
-      echo "| Windows ARM64 |  | \`${windows_arm64_package_version:-$windows_package_version}\` |  |  | Microsoft Store 目录已出现，下载 URL 待解析（\`${windows_arm64_status:-catalog-only}\`） |"
+      echo "| Windows ARM64 |  |  | \`${windows_arm64_package_version:-$windows_package_version}\` |  |  | Microsoft Store 目录已出现，下载 URL 待解析（\`${windows_arm64_status:-catalog-only}\`） |"
     fi
   else
-    echo "| Windows ARM64 |  |  |  |  | 待官方发布对应版本 |"
+    echo "| Windows ARM64 |  |  |  |  |  | 待官方发布对应版本 |"
   fi
   if [[ "$include_macos_arm64" == "true" ]]; then
-    echo "| macOS Apple Silicon | \`${mac_arm_version}\` | build \`${mac_arm_build}\` | $(table_cell "$mac_arm_pub_date") | ${published_at_label} | 已发布 |"
+    echo "| macOS Apple Silicon | \`${mac_arm_version}\` | $(table_code_cell "$mac_arm_backend_version") | build \`${mac_arm_build}\` | $(table_cell "$mac_arm_pub_date") | ${published_at_label} | 已发布 |"
   else
-    echo "| macOS Apple Silicon | \`${mac_arm_version}\` | build \`${mac_arm_build}\` | $(table_cell "$mac_arm_pub_date") |  | 当前 latest，待目标版本 |"
+    echo "| macOS Apple Silicon | \`${mac_arm_version}\` | $(table_code_cell "$mac_arm_backend_version") | build \`${mac_arm_build}\` | $(table_cell "$mac_arm_pub_date") |  | 当前 latest，待目标版本 |"
   fi
   if [[ "$include_macos_x64" == "true" ]]; then
-    echo "| macOS Intel | \`${mac_x64_version}\` | build \`${mac_x64_build}\` | $(table_cell "$mac_x64_pub_date") | ${published_at_label} | 已发布 |"
+    echo "| macOS Intel | \`${mac_x64_version}\` | $(table_code_cell "$mac_x64_backend_version") | build \`${mac_x64_build}\` | $(table_cell "$mac_x64_pub_date") | ${published_at_label} | 已发布 |"
   else
-    echo "| macOS Intel | \`${mac_x64_version}\` | build \`${mac_x64_build}\` | $(table_cell "$mac_x64_pub_date") |  | 当前 latest，待目标版本 |"
+    echo "| macOS Intel | \`${mac_x64_version}\` | $(table_code_cell "$mac_x64_backend_version") | build \`${mac_x64_build}\` | $(table_cell "$mac_x64_pub_date") |  | 当前 latest，待目标版本 |"
   fi
   echo
   echo "本仓库以 Codex 内部版本聚合平台安装包；Windows MSIX 的四段包版本会单独列在“平台包 / build”列。"
@@ -816,37 +876,37 @@ mv "$tmp_manifest" release-manifest.json
   echo
   echo "## Versions and publish times"
   echo
-  echo "| Platform | Codex version | Platform package / build | Official publish time | Mirror publish time | Status |"
-  echo "|---|---:|---:|---|---|---|"
+  echo "| Platform | Codex version | Backend version | Platform package / build | Official publish time | Mirror publish time | Status |"
+  echo "|---|---:|---:|---:|---|---|---|"
   if [[ "$include_windows_x64" == "true" ]]; then
-    echo "| Windows x64 | \`${windows_app_version}\` | \`${windows_package_version}\` | $(table_cell "$windows_x64_last_modified") | ${published_at_label} | Published |"
+    echo "| Windows x64 | \`${windows_app_version}\` | $(table_code_cell "$windows_backend_version") | \`${windows_package_version}\` | $(table_cell "$windows_x64_last_modified") | ${published_at_label} | Published |"
   else
-    echo "| Windows x64 | \`${windows_app_version}\` | \`${windows_package_version}\` | $(table_cell "$windows_x64_last_modified") |  | Current latest, waiting for target version |"
+    echo "| Windows x64 | \`${windows_app_version}\` | $(table_code_cell "$windows_backend_version") | \`${windows_package_version}\` | $(table_cell "$windows_x64_last_modified") |  | Current latest, waiting for target version |"
   fi
   if [[ "$include_windows_arm64" == "true" ]]; then
-    echo "| Windows ARM64 | \`${windows_arm64_app_version}\` | \`${windows_arm64_package_version:-$windows_package_version}\` | $(table_cell "$windows_arm64_last_modified") | ${published_at_label} | Published |"
+    echo "| Windows ARM64 | \`${windows_arm64_app_version}\` | $(table_code_cell "$windows_arm64_backend_version") | \`${windows_arm64_package_version:-$windows_package_version}\` | $(table_cell "$windows_arm64_last_modified") | ${published_at_label} | Published |"
   elif [[ -n "$windows_arm64_package" ]]; then
     if [[ "$windows_arm64_downloadable" == "true" ]]; then
-      echo "| Windows ARM64 | \`${windows_arm64_app_version}\` | \`${windows_arm64_package_version:-$windows_package_version}\` | $(table_cell "$windows_arm64_last_modified") |  | Current latest, waiting for target version |"
+      echo "| Windows ARM64 | \`${windows_arm64_app_version}\` | $(table_code_cell "$windows_arm64_backend_version") | \`${windows_arm64_package_version:-$windows_package_version}\` | $(table_cell "$windows_arm64_last_modified") |  | Current latest, waiting for target version |"
     elif [[ "$windows_arm64_missing_reason" == "skipped-rollout-drift" ]]; then
-      echo "| Windows ARM64 |  | \`${windows_arm64_package_version:-$windows_package_version}\` |  |  | Upstream version drifted during download; will be retried on the next probe (\`${windows_arm64_status}\`) |"
+      echo "| Windows ARM64 |  |  | \`${windows_arm64_package_version:-$windows_package_version}\` |  |  | Upstream version drifted during download; will be retried on the next probe (\`${windows_arm64_status}\`) |"
     elif [[ "$windows_arm64_missing_reason" == "skipped-version-unreadable" ]]; then
-      echo "| Windows ARM64 |  | \`${windows_arm64_package_version:-$windows_package_version}\` |  |  | Could not read internal version; will be retried on the next probe (\`${windows_arm64_status}\`) |"
+      echo "| Windows ARM64 |  |  | \`${windows_arm64_package_version:-$windows_package_version}\` |  |  | Could not read internal version; will be retried on the next probe (\`${windows_arm64_status}\`) |"
     else
-      echo "| Windows ARM64 |  | \`${windows_arm64_package_version:-$windows_package_version}\` |  |  | Present in Microsoft Store catalog, download URL unresolved (\`${windows_arm64_status:-catalog-only}\`) |"
+      echo "| Windows ARM64 |  |  | \`${windows_arm64_package_version:-$windows_package_version}\` |  |  | Present in Microsoft Store catalog, download URL unresolved (\`${windows_arm64_status:-catalog-only}\`) |"
     fi
   else
-    echo "| Windows ARM64 |  |  |  |  | Waiting for matching upstream package |"
+    echo "| Windows ARM64 |  |  |  |  |  | Waiting for matching upstream package |"
   fi
   if [[ "$include_macos_arm64" == "true" ]]; then
-    echo "| macOS Apple Silicon | \`${mac_arm_version}\` | build \`${mac_arm_build}\` | $(table_cell "$mac_arm_pub_date") | ${published_at_label} | Published |"
+    echo "| macOS Apple Silicon | \`${mac_arm_version}\` | $(table_code_cell "$mac_arm_backend_version") | build \`${mac_arm_build}\` | $(table_cell "$mac_arm_pub_date") | ${published_at_label} | Published |"
   else
-    echo "| macOS Apple Silicon | \`${mac_arm_version}\` | build \`${mac_arm_build}\` | $(table_cell "$mac_arm_pub_date") |  | Current latest, waiting for target version |"
+    echo "| macOS Apple Silicon | \`${mac_arm_version}\` | $(table_code_cell "$mac_arm_backend_version") | build \`${mac_arm_build}\` | $(table_cell "$mac_arm_pub_date") |  | Current latest, waiting for target version |"
   fi
   if [[ "$include_macos_x64" == "true" ]]; then
-    echo "| macOS Intel | \`${mac_x64_version}\` | build \`${mac_x64_build}\` | $(table_cell "$mac_x64_pub_date") | ${published_at_label} | Published |"
+    echo "| macOS Intel | \`${mac_x64_version}\` | $(table_code_cell "$mac_x64_backend_version") | build \`${mac_x64_build}\` | $(table_cell "$mac_x64_pub_date") | ${published_at_label} | Published |"
   else
-    echo "| macOS Intel | \`${mac_x64_version}\` | build \`${mac_x64_build}\` | $(table_cell "$mac_x64_pub_date") |  | Current latest, waiting for target version |"
+    echo "| macOS Intel | \`${mac_x64_version}\` | $(table_code_cell "$mac_x64_backend_version") | build \`${mac_x64_build}\` | $(table_cell "$mac_x64_pub_date") |  | Current latest, waiting for target version |"
   fi
   echo
   echo "This mirror groups platform installers by the Codex app's internal version; the four-part Windows MSIX package version is listed separately in the platform package / build column."
